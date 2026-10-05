@@ -1,0 +1,11 @@
+django==5.1
+djangorestframework==3.15.2
+djangorestframework-simplejwt==5.3.1
+django-cors-headers==4.4.0
+mysqlclient==2.2.4
+python-dotenv==1.0.1
+bcrypt>=4.0.0
+gunicorn>=21.2.0
+whitenoise>=6.6.0
+dj-database-url>=2.1.0
+

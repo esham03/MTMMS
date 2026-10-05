@@ -1,0 +1,89 @@
+# ============================================================
+# MTMMS (Mobile Tower Management & Monitoring System)
+# Comprehensive Git Ignore Rules
+# ============================================================
+
+# --- Operating System & Temporary Files ---
+*.tmp
+*.temp
+*.bak
+*.old
+*.orig
+*.backup
+*.log
+.DS_Store
+Thumbs.db
+desktop.ini
+~$*
+
+# --- Environment & Machine-Specific Config ---
+.env
+.env.*
+*.env
+.mtmms-runtime.env
+mtmms_api/.env
+web/.env
+web/.env.local
+web/.env.*.local
+!.env.example
+!mtmms_api/.env.example
+!web/.env.example
+
+# --- Python & Django ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.sqlite3
+venv/
+.venv/
+env/
+ENV/
+mtmms_api/staticfiles/
+mtmms_api/media/
+
+# --- Node.js & React Web Application ---
+node_modules/
+web/node_modules/
+dist/
+web/dist/
+
+# --- Electron Desktop Build Output ---
+web/dist-desktop/
+web/release/
+release/
+
+# --- Flutter & Dart Mobile App ---
+mobile_tower_app/.dart_tool/
+mobile_tower_app/.packages
+mobile_tower_app/.pub-cache/
+mobile_tower_app/build/
+mobile_tower_app/.flutter-plugins
+mobile_tower_app/.flutter-plugins-dependencies
+mobile_tower_app/.metadata
+mobile_tower_app/android/.gradle/
+mobile_tower_app/android/local.properties
+mobile_tower_app/android/app/debug/
+mobile_tower_app/android/app/profile/
+mobile_tower_app/android/app/release/
+mobile_tower_app/ios/Pods/
+mobile_tower_app/ios/.symlinks/
+mobile_tower_app/ios/Flutter/ephemeral/
+mobile_tower_app/ios/Flutter/Generated.xcconfig
+mobile_tower_app/ios/Flutter/flutter_export_environment.sh
+
+# --- Presentations & Non-Code Documents ---
+*.ppt
+*.pptx
+*.pptm
+*.pps
+*.ppsx
+*.odp
+
+# --- IDE & Editor Configuration ---
+.idea/
+*.iml
+.vscode/
+
+# --- Generated Application Builds ---
+*.apk
+*.aab
