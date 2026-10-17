@@ -5,17 +5,21 @@ title MTMMS Desktop Launcher
 set "PROJECT_ROOT=%~dp0"
 if "%PROJECT_ROOT:~-1%"=="\" set "PROJECT_ROOT=%PROJECT_ROOT:~0,-1%"
 
+:: Clean up any existing instances of Electron to prevent disk cache lock collisions
+taskkill /F /IM "MTMMS Desktop.exe" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq MTMMS Desktop*" >nul 2>&1
+
 :: Load active runtime configuration from single source of truth
+set "MTMMS_API_PORT=8000"
 if exist "%PROJECT_ROOT%\.mtmms-runtime.env" (
     for /f "usebackq tokens=1,* delims==" %%A in ("%PROJECT_ROOT%\.mtmms-runtime.env") do (
-        if "%%A"=="MTMMS_SERVER_IP" set "MTMMS_SERVER_IP=%%B"
         if "%%A"=="MTMMS_API_PORT" set "MTMMS_API_PORT=%%B"
-        if "%%A"=="MTMMS_API_URL" set "MTMMS_API_URL=%%B"
-        if "%%A"=="MTMMS_WEB_URL" set "MTMMS_WEB_URL=%%B"
     )
 )
 
-if not defined MTMMS_API_URL set "MTMMS_API_URL=http://127.0.0.1:8000/api"
+:: For the local desktop application running on this host PC, always use loopback (127.0.0.1)
+:: to ensure instant response without dependency on router NAT hairpinning or hotspot isolation.
+set "MTMMS_API_URL=http://127.0.0.1:%MTMMS_API_PORT%/api"
 
 echo ========================================================
 echo         MTMMS DESKTOP APPLICATION LAUNCHER

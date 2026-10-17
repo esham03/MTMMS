@@ -2,9 +2,11 @@
 // DO NOT EDIT MANUALLY - Automatically updated on every server launch
 
 class GeneratedServerConfig {
-  static const String serverIp = '172.20.10.2';
+  static const String serverIp = '172.20.10.3';
+  static const List<String> allServerIps = ['172.20.10.3'];
   static const int apiPort = 8000;
-  static const String apiUrl = 'http://172.20.10.2:8000/api';
-  static const String healthUrl = 'http://172.20.10.2:8000/api/health/';
+  static const String apiUrl = 'http://172.20.10.3:8000/api';
+  static const String healthUrl = 'http://172.20.10.3:8000/api/health/';
+  static const String tunnelUrl = 'https://sour-olives-sneeze.loca.lt/api';
   static const int discoveryPort = 41588;
 }

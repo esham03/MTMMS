@@ -22,25 +22,27 @@ class DiscoveredServer {
   final int port;
   final String apiUrl;
   final String deviceName;
+  final bool isCloud;
 
   const DiscoveredServer({
     required this.ip,
     required this.port,
     required this.apiUrl,
     required this.deviceName,
+    this.isCloud = false,
   });
 
   @override
-  String toString() => 'DiscoveredServer($ip:$port -> $apiUrl)';
+  String toString() => 'DiscoveredServer($ip:$port -> $apiUrl, isCloud: $isCloud)';
 }
 
-/// Robust Local Network Server Discovery Service for MTMMS.
+/// Robust Universal Network Server Discovery Service for MTMMS.
 ///
-/// Discovers the MTMMS Django backend dynamically across any Wi-Fi/LAN:
-/// 1. Tests previously saved server URL via fast /api/health/ probe.
-/// 2. Broadcasts UDP discovery probe on port 41588 (to 255.255.255.255 & directed subnet broadcast).
-/// 3. Listens for periodic discovery beacons from the MTMMS server.
-/// 4. Subnet sweep fallback (scans /24 local subnet if router blocks UDP broadcast).
+/// Seamlessly connects to the MTMMS Django backend across ANY available network:
+/// 1. Tests previously verified local & cloud URLs via fast /api/health/ probe.
+/// 2. Probes compile-time candidate IPs and Cloud Tunnel URLs.
+/// 3. Broadcasts UDP discovery probe on port 41588 across all Wi-Fi subnet broadcasts.
+/// 4. Concurrent Wi-Fi / Hotspot subnet sweep (prioritizing wlan interfaces over cellular).
 /// 5. Validates /api/health/ JSON signature ("status": "ok", "service": "MTMMS API").
 class ServerDiscoveryService {
   ServerDiscoveryService._();
@@ -57,18 +59,18 @@ class ServerDiscoveryService {
   static final ValueNotifier<DiscoveredServer?> discoveredServerNotifier =
       ValueNotifier<DiscoveredServer?>(null);
 
-  /// Performs full automated discovery pipeline.
-  /// Returns DiscoveredServer on success, or null on failure.
+  /// Performs full automated discovery pipeline across local network and cloud.
   static Future<DiscoveredServer?> discoverServer({bool forceRefresh = false}) async {
     final prefs = await SharedPreferences.getInstance();
 
     // ─────────────────────────────────────────────────────────────
-    // STEP 1: Verify cached server or compile-time fallback first
+    // STEP 1: Fast Probe Cached Server & Cloud Tunnel
     // ─────────────────────────────────────────────────────────────
     if (!forceRefresh) {
       statusNotifier.value = DiscoveryStatus.checkingCached;
       statusMessageNotifier.value = 'Connecting to MTMMS...';
 
+      // 1a. Test last cached URL
       final cachedUrl = prefs.getString(prefCachedServerUrlKey) ?? ApiConfig.baseUrl;
       if (cachedUrl.isNotEmpty) {
         final verified = await _verifyHealth(cachedUrl, timeoutSeconds: 2);
@@ -78,7 +80,17 @@ class ServerDiscoveryService {
         }
       }
 
-      // Also try the compile-time generated fallback if different
+      // 1b. Test saved Cloud Tunnel URL (for 4G/5G mobile data / remote network)
+      final savedCloud = prefs.getString(ApiConfig.prefCloudUrlKey);
+      if (savedCloud != null && savedCloud.isNotEmpty && savedCloud != cachedUrl) {
+        final verifiedCloud = await _verifyHealth(savedCloud, timeoutSeconds: 2);
+        if (verifiedCloud != null) {
+          _onServerFound(verifiedCloud, prefs);
+          return verifiedCloud;
+        }
+      }
+
+      // 1c. Test compile-time generated fallback
       if (GeneratedServerConfig.apiUrl != cachedUrl) {
         final verifiedGenerated = await _verifyHealth(
           GeneratedServerConfig.apiUrl,
@@ -87,6 +99,19 @@ class ServerDiscoveryService {
         if (verifiedGenerated != null) {
           _onServerFound(verifiedGenerated, prefs);
           return verifiedGenerated;
+        }
+      }
+
+      // 1d. Test compile-time generated tunnel URL
+      if (GeneratedServerConfig.tunnelUrl.isNotEmpty &&
+          GeneratedServerConfig.tunnelUrl != cachedUrl) {
+        final verifiedTunnel = await _verifyHealth(
+          GeneratedServerConfig.tunnelUrl,
+          timeoutSeconds: 2,
+        );
+        if (verifiedTunnel != null) {
+          _onServerFound(verifiedTunnel, prefs);
+          return verifiedTunnel;
         }
       }
     }
@@ -104,10 +129,10 @@ class ServerDiscoveryService {
     }
 
     // ─────────────────────────────────────────────────────────────
-    // STEP 3: Subnet Sweep Fallback (in case router blocks UDP)
+    // STEP 3: Multi-Interface Subnet Sweep
     // ─────────────────────────────────────────────────────────────
     statusNotifier.value = DiscoveryStatus.scanningSubnet;
-    statusMessageNotifier.value = 'Scanning local Wi-Fi subnet...';
+    statusMessageNotifier.value = 'Scanning local Wi-Fi / Hotspot subnet...';
 
     server = await _sweepLocalSubnet(defaultApiPort);
     if (server != null) {
@@ -116,18 +141,54 @@ class ServerDiscoveryService {
     }
 
     // ─────────────────────────────────────────────────────────────
+    // STEP 4: Fallback Check on Configured Cloud Tunnel
+    // ─────────────────────────────────────────────────────────────
+    final savedCloud = prefs.getString(ApiConfig.prefCloudUrlKey) ?? GeneratedServerConfig.tunnelUrl;
+    if (savedCloud.isNotEmpty) {
+      statusMessageNotifier.value = 'Connecting to MTMMS Cloud Tunnel...';
+      final verifiedCloud = await _verifyHealth(savedCloud, timeoutSeconds: 3);
+      if (verifiedCloud != null) {
+        _onServerFound(verifiedCloud, prefs);
+        return verifiedCloud;
+      }
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // FAILED: Server not found
     // ─────────────────────────────────────────────────────────────
     statusNotifier.value = DiscoveryStatus.failed;
     statusMessageNotifier.value =
-        'MTMMS Server Not Found on local network.\n'
-        '• Ensure phone and computer are on the same Wi-Fi.\n'
-        '• Ensure Start-Live-System.bat is running on PC.\n'
-        '• Check Windows Defender Firewall rules.';
+        'MTMMS Server Not Found.\n'
+        '• Connect to the same Wi-Fi as your computer, OR\n'
+        '• Connect via Cloud Tunnel / enter the Server IP manually.';
     return null;
   }
 
-  /// Sends UDP broadcast probe and listens for announcements
+  /// Manually tests and applies a server IP or full URL.
+  static Future<DiscoveredServer?> connectToUrl(String rawInput) async {
+    final prefs = await SharedPreferences.getInstance();
+    var cleaned = rawInput.trim();
+    if (cleaned.isEmpty) return null;
+
+    if (!cleaned.startsWith('http://') && !cleaned.startsWith('https://')) {
+      if (!cleaned.contains(':')) {
+        cleaned = 'http://$cleaned:8000/api';
+      } else {
+        cleaned = 'http://$cleaned/api';
+      }
+    } else {
+      cleaned = ApiConfig.cleanUrl(cleaned);
+    }
+
+    final verified = await _verifyHealth(cleaned, timeoutSeconds: 4);
+    if (verified != null) {
+      _onServerFound(verified, prefs);
+      return verified;
+    }
+    return null;
+  }
+
+  /// Sends UDP broadcast probe across universal and directed subnet addresses
   static Future<DiscoveredServer?> _discoverViaUdp({
     Duration timeout = const Duration(seconds: 3),
   }) async {
@@ -154,12 +215,18 @@ class ServerDiscoveryService {
                 final int port = int.tryParse(json['api_port']?.toString() ?? '') ?? 8000;
                 final String apiUrl = json['api_url']?.toString() ?? 'http://$ip:$port/api';
                 final String name = json['device_name']?.toString() ?? 'MTMMS Server';
+                final String? tunnelUrl = json['tunnel_url']?.toString();
+
+                if (tunnelUrl != null && tunnelUrl.isNotEmpty) {
+                  ApiConfig.setCloudUrl(tunnelUrl);
+                }
 
                 final server = DiscoveredServer(
                   ip: ip,
                   port: port,
                   apiUrl: apiUrl,
                   deviceName: name,
+                  isCloud: false,
                 );
 
                 // Verify health check before accepting
@@ -175,14 +242,15 @@ class ServerDiscoveryService {
       });
 
       final probeBytes = utf8.encode('MTMMS_DISCOVER_REQUEST');
-      
-      // Broadcast to universal broadcast address
       final targetUniversal = InternetAddress('255.255.255.255');
-      socket.send(probeBytes, targetUniversal, discoveryPort);
+      
+      try {
+        socket.send(probeBytes, targetUniversal, discoveryPort);
+      } catch (_) {}
 
-      // Also broadcast to device subnet broadcast address if detectable
-      final localIp = await _getLocalIp();
-      if (localIp != null) {
+      // Broadcast across all detected local subnets
+      final localIps = await _getAllLocalIps();
+      for (final localIp in localIps) {
         final parts = localIp.split('.');
         if (parts.length == 4) {
           final subnetBroadcast = '${parts[0]}.${parts[1]}.${parts[2]}.255';
@@ -209,37 +277,72 @@ class ServerDiscoveryService {
     }
   }
 
-  /// Scans the local /24 subnet for the MTMMS health check endpoint
+  /// Scans local Wi-Fi and hotspot subnets with smart priority (hotspot gateways first)
   static Future<DiscoveredServer?> _sweepLocalSubnet(int port) async {
     try {
-      final localIp = await _getLocalIp();
-      if (localIp == null) return null;
+      final localIps = await _getAllLocalIps();
+      final Set<String> prefixes = {};
 
-      final parts = localIp.split('.');
-      if (parts.length != 4) return null;
-      final subnetPrefix = '${parts[0]}.${parts[1]}.${parts[2]}';
-
-      // Scan candidate IPs concurrently in batches of 32
-      final List<String> candidateIps = [];
-      for (int i = 1; i <= 254; i++) {
-        candidateIps.add('$subnetPrefix.$i');
+      for (final ip in localIps) {
+        final parts = ip.split('.');
+        if (parts.length == 4) {
+          prefixes.add('${parts[0]}.${parts[1]}.${parts[2]}');
+        }
       }
 
-      const int batchSize = 32;
-      for (int i = 0; i < candidateIps.length; i += batchSize) {
-        final chunk = candidateIps.sublist(
-          i,
-          (i + batchSize > candidateIps.length) ? candidateIps.length : i + batchSize,
-        );
+      // Add standard hotspot subnets as fallback if none or few detected
+      prefixes.add('172.20.10');   // iPhone Hotspot
+      prefixes.add('192.168.43');  // Android Hotspot
 
-        final futures = chunk.map((ip) async {
-          final url = 'http://$ip:$port/api';
-          return await _verifyHealth(url, timeoutSeconds: 1);
-        });
+      // Priority 1: Fast test common hotspot gateway/host IPs (.1, .2, .3, .100)
+      final List<String> fastTargets = [];
+      for (final prefix in prefixes) {
+        fastTargets.add('$prefix.1');
+        fastTargets.add('$prefix.2');
+        fastTargets.add('$prefix.3');
+        fastTargets.add('$prefix.100');
+        fastTargets.add('$prefix.15');
+        fastTargets.add('$prefix.25');
+      }
 
-        final results = await Future.wait(futures);
-        for (final res in results) {
-          if (res != null) return res;
+      for (final candidateIp in GeneratedServerConfig.allServerIps) {
+        if (!fastTargets.contains(candidateIp)) {
+          fastTargets.insert(0, candidateIp);
+        }
+      }
+
+      final fastFutures = fastTargets.map((ip) => _verifyHealth('http://$ip:$port/api', timeoutSeconds: 1));
+      final fastResults = await Future.wait(fastFutures);
+      for (final res in fastResults) {
+        if (res != null) return res;
+      }
+
+      // Priority 2: Concurrent sweep across primary detected subnets
+      for (final prefix in prefixes) {
+        final List<String> candidateIps = [];
+        for (int i = 1; i <= 254; i++) {
+          final ip = '$prefix.$i';
+          if (!fastTargets.contains(ip)) {
+            candidateIps.add(ip);
+          }
+        }
+
+        const int batchSize = 40;
+        for (int i = 0; i < candidateIps.length; i += batchSize) {
+          final chunk = candidateIps.sublist(
+            i,
+            (i + batchSize > candidateIps.length) ? candidateIps.length : i + batchSize,
+          );
+
+          final futures = chunk.map((ip) async {
+            final url = 'http://$ip:$port/api';
+            return await _verifyHealth(url, timeoutSeconds: 1);
+          });
+
+          final results = await Future.wait(futures);
+          for (final res in results) {
+            if (res != null) return res;
+          }
         }
       }
     } catch (_) {}
@@ -247,8 +350,11 @@ class ServerDiscoveryService {
     return null;
   }
 
-  /// Helper to get primary non-loopback local IPv4 address
-  static Future<String?> _getLocalIp() async {
+  /// Collects all non-loopback local IPv4 addresses, prioritizing Wi-Fi/LAN over cellular
+  static Future<List<String>> _getAllLocalIps() async {
+    final List<String> wifiIps = [];
+    final List<String> otherIps = [];
+
     try {
       final interfaces = await NetworkInterface.list(
         type: InternetAddressType.IPv4,
@@ -256,18 +362,30 @@ class ServerDiscoveryService {
       );
 
       for (final iface in interfaces) {
+        final name = iface.name.toLowerCase();
+        final isWifiOrLan = name.contains('wlan') ||
+            name.contains('eth') ||
+            name.contains('en') ||
+            name.contains('wifi') ||
+            name.contains('tiwlan');
+
         for (final addr in iface.addresses) {
           final ip = addr.address;
           if (!ip.startsWith('127.') && !ip.startsWith('169.254.')) {
-            return ip;
+            if (isWifiOrLan) {
+              wifiIps.add(ip);
+            } else {
+              otherIps.add(ip);
+            }
           }
         }
       }
     } catch (_) {}
-    return null;
+
+    return [...wifiIps, ...otherIps];
   }
 
-  /// Verifies health check endpoint returns 200 OK and "service": "MTMMS API"
+  /// Verifies health check endpoint returns 200 OK and "service": "MTMMS"
   static Future<DiscoveredServer?> _verifyHealth(
     String candidateApiUrl, {
     int timeoutSeconds = 2,
@@ -280,7 +398,13 @@ class ServerDiscoveryService {
       final healthUri = Uri.parse('$base/health/');
 
       final response = await http
-          .get(healthUri, headers: {'Accept': 'application/json'})
+          .get(
+            healthUri,
+            headers: {
+              'Accept': 'application/json',
+              'bypass-tunnel-reminder': 'true',
+            },
+          )
           .timeout(Duration(seconds: timeoutSeconds));
 
       if (response.statusCode == 200) {
@@ -289,11 +413,22 @@ class ServerDiscoveryService {
             body['status'] == 'ok' &&
             body['service']?.toString().contains('MTMMS') == true) {
           final uri = Uri.parse(base);
+          final bool isCloud = base.startsWith('https://') ||
+              base.contains('.loca.lt') ||
+              base.contains('.trycloudflare.com') ||
+              base.contains('.ngrok');
+
+          // If server advertises a tunnel URL, capture it
+          if (body['tunnel_url'] != null && body['tunnel_url'].toString().isNotEmpty) {
+            ApiConfig.setCloudUrl(body['tunnel_url'].toString());
+          }
+
           return DiscoveredServer(
             ip: uri.host,
             port: uri.port,
             apiUrl: base,
             deviceName: 'MTMMS Server',
+            isCloud: isCloud,
           );
         }
       }
@@ -315,7 +450,9 @@ class ServerDiscoveryService {
   static void _onServerFound(DiscoveredServer server, SharedPreferences prefs) {
     discoveredServerNotifier.value = server;
     statusNotifier.value = DiscoveryStatus.found;
-    statusMessageNotifier.value = 'Connected to MTMMS Server (${server.ip})';
+    statusMessageNotifier.value = server.isCloud
+        ? 'Connected to MTMMS Cloud (${server.ip})'
+        : 'Connected to MTMMS Local (${server.ip})';
 
     // Persist discovered server
     prefs.setString(prefCachedServerUrlKey, server.apiUrl);

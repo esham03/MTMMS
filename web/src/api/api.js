@@ -5,9 +5,9 @@ import axios from "axios";
  *
  * Priority:
  * 1. Electron Desktop Bridge API (via preload contextBridge)
- * 2. Dynamic Browser Host Detection (e.g. http://<CURRENT_HOST>:8000/api)
- * 3. Vite Environment Variable (import.meta.env.VITE_API_URL)
- * 4. LocalStorage manual override (if set)
+ * 2. Dynamic Browser Host/Tunnel Detection (e.g. http://<CURRENT_HOST>:8000/api or https://<TUNNEL_DOMAIN>/api)
+ * 3. Saved user override in localStorage (if set manually)
+ * 4. Vite Environment Variable (import.meta.env.VITE_API_URL)
  * 5. Fallback: http://127.0.0.1:8000/api
  */
 export const getBaseUrl = () => {
@@ -16,7 +16,36 @@ export const getBaseUrl = () => {
     return window.electronAPI.apiUrl;
   }
 
-  // 2. Saved user override in localStorage (if valid)
+  // 2. Dynamic browser hostname / tunnel detection
+  // If the web app is loaded in any browser on any network, route API requests
+  // directly to the same host/tunnel origin to ensure it works across all networks.
+  if (typeof window !== "undefined" && window.location) {
+    const currentHost = window.location.hostname;
+    const protocol = window.location.protocol;
+    const host = window.location.host;
+
+    if (currentHost && !protocol.startsWith("file")) {
+      // Check if accessed through a cloud tunnel (localtunnel, cloudflare, ngrok, etc.)
+      if (
+        host.includes(".loca.lt") ||
+        host.includes(".trycloudflare.com") ||
+        host.includes(".ngrok-free.app")
+      ) {
+        // If web is running through tunnel or environment points to tunnel
+        if (import.meta.env?.VITE_TUNNEL_URL) {
+          const tUrl = import.meta.env.VITE_TUNNEL_URL.replace(/\/+$/, "");
+          return `${tUrl}/api`;
+        }
+        return `${window.location.origin}/api`;
+      }
+
+      // If running on local network IP (e.g. 192.168.x.x, 10.x.x.x, 172.x.x.x) or localhost
+      const apiPort = import.meta.env?.VITE_API_PORT || 8000;
+      return `http://${currentHost}:${apiPort}/api`;
+    }
+  }
+
+  // 3. Saved user override in localStorage (if valid)
   if (typeof window !== "undefined" && window.localStorage) {
     const saved = localStorage.getItem("mtmms_api_url");
     if (
@@ -26,19 +55,6 @@ export const getBaseUrl = () => {
       !saved.includes("infinityfree")
     ) {
       return saved;
-    }
-  }
-
-  // 3. Dynamic browser hostname detection
-  // If the web app was opened in a browser (e.g. http://192.168.1.15:5174/ or http://172.20.10.2:5174/),
-  // automatically route API requests to that same server host on port 8000.
-  if (typeof window !== "undefined" && window.location) {
-    const currentHost = window.location.hostname;
-    const protocol = window.location.protocol;
-
-    if (currentHost && !protocol.startsWith("file")) {
-      const apiPort = import.meta.env?.VITE_API_PORT || 8000;
-      return `http://${currentHost}:${apiPort}/api`;
     }
   }
 
@@ -79,11 +95,14 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     config.baseURL = getBaseUrl();
+    if (config.baseURL && config.baseURL.includes(".loca.lt")) {
+      config.headers["Bypass-Tunnel-Reminder"] = "true";
+    }
     const token =
+      localStorage.getItem("token") ||
       localStorage.getItem("mtmms_token") ||
       sessionStorage.getItem("mtmms_token");
     if (token) {
-      config.headers = config.headers || {};
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -91,21 +110,35 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response Interceptor: Global response handling
+// Response Interceptor: Format standard error structures
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Clear token on 401 if not already on login page
-      if (typeof window !== "undefined" && window.location.pathname !== "/login") {
-        localStorage.removeItem("mtmms_token");
-        localStorage.removeItem("mtmms_user");
-        sessionStorage.removeItem("mtmms_token");
-        sessionStorage.removeItem("mtmms_user");
-        window.dispatchEvent(new Event("auth_invalid"));
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      localStorage.removeItem("mtmms_token");
+      localStorage.removeItem("mtmms_user");
+      sessionStorage.removeItem("mtmms_token");
+      sessionStorage.removeItem("mtmms_user");
+      if (
+        typeof window !== "undefined" &&
+        !window.location.pathname.includes("/login")
+      ) {
+        window.location.href = "/login";
       }
     }
-    return Promise.reject(error);
+
+    const message =
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      "An unexpected network error occurred";
+
+    return Promise.reject({
+      ...error,
+      customMessage: message,
+    });
   }
 );
 

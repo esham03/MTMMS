@@ -22,6 +22,7 @@ class ApiService {
   static const Map<String, String> defaultHeaders = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
+    'bypass-tunnel-reminder': 'true',
   };
 
   /// Constructs headers with Sanctum Bearer token if logged in.
@@ -30,6 +31,7 @@ class ApiService {
     return {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
+      'bypass-tunnel-reminder': 'true',
       if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
     };
   }
@@ -41,7 +43,7 @@ class ApiService {
   static String _formatException(dynamic error) {
     if (error is SocketException) {
       ServerDiscoveryService.checkOrRediscover();
-      return 'Unable to connect to the MTMMS server. Please verify you are connected to the same Wi-Fi network.';
+      return 'Unable to reach MTMMS Server. Please check your network connection or server URL.';
     } else if (error is TimeoutException) {
       ServerDiscoveryService.checkOrRediscover();
       return 'Connection timed out. MTMMS server took too long to respond.';

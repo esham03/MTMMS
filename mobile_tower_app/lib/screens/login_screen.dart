@@ -342,47 +342,97 @@ class _LoginScreenState extends State<LoginScreen>
                 ],
               ),
               const SizedBox(height: 6),
-              Text(
-                'Connected to MTMMS on same Wi-Fi. Current Host: ${ApiConfig.currentHost}',
-                style: GoogleFonts.poppins(
-                  fontSize: 11.5,
-                  color: const Color(0xFF64748B),
-                  height: 1.4,
-                ),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: ApiConfig.isCloudActive
+                          ? const Color(0xFF10B981).withValues(alpha: 0.15)
+                          : const Color(0xFFFF5100).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      ApiConfig.isCloudActive ? 'Cloud Tunnel (Any Network)' : 'Local Wi-Fi',
+                      style: GoogleFonts.poppins(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: ApiConfig.isCloudActive ? const Color(0xFF10B981) : const Color(0xFFFF5100),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Host: ${ApiConfig.currentHost}',
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        color: const Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 12),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFFFF5100),
-                  side: const BorderSide(color: Color(0xFFFF5100), width: 1.2),
-                  padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFFF5100),
+                        side: const BorderSide(color: Color(0xFFFF5100), width: 1.1),
+                        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      icon: const Icon(Icons.wifi_find_rounded, size: 16),
+                      label: const Text('Wi-Fi Auto-Discover', style: TextStyle(fontSize: 11)),
+                      onPressed: testing
+                          ? null
+                          : () async {
+                              setModalState(() {
+                                testing = true;
+                                testMsg = 'Searching local Wi-Fi network...';
+                                testSuccess = false;
+                              });
+                              final discovered = await ServerDiscoveryService.discoverServer(forceRefresh: true);
+                              setModalState(() {
+                                testing = false;
+                                if (discovered != null) {
+                                  controller.text = discovered.apiUrl;
+                                  testSuccess = true;
+                                  testMsg = 'Discovered MTMMS at ${discovered.ip}';
+                                } else {
+                                  testSuccess = false;
+                                  testMsg = 'No server discovered on Wi-Fi.';
+                                }
+                              });
+                            },
+                    ),
                   ),
-                ),
-                icon: const Icon(Icons.wifi_find_rounded, size: 18),
-                label: const Text('Auto-Discover MTMMS Server on Wi-Fi'),
-                onPressed: testing
-                    ? null
-                    : () async {
-                        setModalState(() {
-                          testing = true;
-                          testMsg = 'Searching local Wi-Fi network...';
-                          testSuccess = false;
-                        });
-                        final discovered = await ServerDiscoveryService.discoverServer(forceRefresh: true);
-                        setModalState(() {
-                          testing = false;
-                          if (discovered != null) {
-                            controller.text = discovered.apiUrl;
-                            testSuccess = true;
-                            testMsg = 'Discovered MTMMS Server at ${discovered.ip}';
-                          } else {
-                            testSuccess = false;
-                            testMsg = 'No MTMMS Server found on this Wi-Fi network.';
-                          }
-                        });
-                      },
+                  if (ApiConfig.cloudUrl.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF10B981),
+                          side: const BorderSide(color: Color(0xFF10B981), width: 1.1),
+                          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        icon: const Icon(Icons.cloud_rounded, size: 16),
+                        label: const Text('Use Cloud URL', style: TextStyle(fontSize: 11)),
+                        onPressed: () {
+                          controller.text = ApiConfig.cloudUrl;
+                        },
+                      ),
+                    ),
+                  ],
+                ],
               ),
               const SizedBox(height: 14),
               TextField(

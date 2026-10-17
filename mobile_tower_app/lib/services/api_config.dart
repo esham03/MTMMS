@@ -1,22 +1,39 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/server_config.dart';
 
-/// Centralized API Configuration for MTMMS.
+/// Centralized Dynamic API Configuration for MTMMS.
 ///
-/// Base URL is dynamically resolved at runtime via ServerDiscoveryService
-/// or initialized from the active launcher configuration.
+/// Supports seamless connectivity across ANY network:
+/// - Local Wi-Fi / Hotspot (fast direct LAN connectivity)
+/// - Global Cloud Tunnel (accessible over 4G/5G mobile data / remote networks)
 class ApiConfig {
   ApiConfig._();
 
+  static const String prefBaseUrlKey = 'mtmms_api_base_url';
+  static const String prefCloudUrlKey = 'mtmms_cloud_url';
+  static const String prefLocalUrlKey = 'mtmms_local_url';
+
   // Dynamic fallback configured from active launcher
   static String get defaultBaseUrl => GeneratedServerConfig.apiUrl;
-  static const String prefBaseUrlKey = 'mtmms_api_base_url';
+  static String get defaultTunnelUrl => GeneratedServerConfig.tunnelUrl;
 
   static String _currentBaseUrl = GeneratedServerConfig.apiUrl;
+  static String _currentCloudUrl = GeneratedServerConfig.tunnelUrl;
 
   static String get baseUrl => _currentBaseUrl;
+  static String get cloudUrl => _currentCloudUrl;
 
-  /// Returns the current host IP or domain of the API
+  /// Returns True if the active API connection is running over a remote cloud tunnel
+  static bool get isCloudActive {
+    final lower = _currentBaseUrl.toLowerCase();
+    return lower.startsWith('https://') ||
+        lower.contains('.loca.lt') ||
+        lower.contains('.trycloudflare.com') ||
+        lower.contains('.ngrok') ||
+        lower.contains('.pagekite.me');
+  }
+
+  /// Returns the current host IP or domain of the active API
   static String get currentHost {
     try {
       final uri = Uri.parse(_currentBaseUrl);
@@ -26,23 +43,8 @@ class ApiConfig {
     }
   }
 
-  /// Initialize API base URL from persistent preferences or launcher config
-  static Future<void> init() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedUrl = prefs.getString(prefBaseUrlKey);
-      if (savedUrl != null && savedUrl.trim().isNotEmpty) {
-        _currentBaseUrl = _cleanUrl(savedUrl);
-      } else {
-        _currentBaseUrl = defaultBaseUrl;
-      }
-    } catch (_) {
-      _currentBaseUrl = defaultBaseUrl;
-    }
-  }
-
   /// Clean and standardize URL format (strips trailing slashes, ensures /api suffix)
-  static String _cleanUrl(String url) {
+  static String cleanUrl(String url) {
     var cleaned = url.trim();
     while (cleaned.endsWith('/')) {
       cleaned = cleaned.substring(0, cleaned.length - 1);
@@ -53,18 +55,57 @@ class ApiConfig {
     return cleaned;
   }
 
+  /// Initialize API base URL from persistent preferences or launcher config
+  static Future<void> init() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      
+      final savedCloud = prefs.getString(prefCloudUrlKey);
+      if (savedCloud != null && savedCloud.trim().isNotEmpty) {
+        _currentCloudUrl = cleanUrl(savedCloud);
+      } else if (defaultTunnelUrl.isNotEmpty) {
+        _currentCloudUrl = cleanUrl(defaultTunnelUrl);
+      }
+
+      final savedUrl = prefs.getString(prefBaseUrlKey);
+      if (savedUrl != null && savedUrl.trim().isNotEmpty) {
+        _currentBaseUrl = cleanUrl(savedUrl);
+      } else {
+        _currentBaseUrl = defaultBaseUrl;
+      }
+    } catch (_) {
+      _currentBaseUrl = defaultBaseUrl;
+    }
+  }
+
   /// Update the active API Base URL persistently
   static Future<void> setBaseUrl(String url) async {
-    final cleaned = _cleanUrl(url);
+    final cleaned = cleanUrl(url);
     _currentBaseUrl = cleaned;
 
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(prefBaseUrlKey, cleaned);
+      if (isCloudActive) {
+        await prefs.setString(prefCloudUrlKey, cleaned);
+      } else {
+        await prefs.setString(prefLocalUrlKey, cleaned);
+      }
     } catch (_) {}
   }
 
-  /// Reset base URL to default
+  /// Update the known cloud tunnel URL persistently
+  static Future<void> setCloudUrl(String url) async {
+    if (url.trim().isEmpty) return;
+    final cleaned = cleanUrl(url);
+    _currentCloudUrl = cleaned;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(prefCloudUrlKey, cleaned);
+    } catch (_) {}
+  }
+
+  /// Reset base URL to default launcher configuration
   static Future<void> resetToDefault() async {
     await setBaseUrl(defaultBaseUrl);
   }

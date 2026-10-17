@@ -11,6 +11,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "tunnel": "node tunnel.cjs",
     "electron:start": "cross-env ELECTRON_DEV=true electron .",
     "electron:dev": "concurrently -k \"vite\" \"wait-on tcp:5174 && npm run electron:start\"",
     "electron:build": "vite build && electron-builder --win --x64",
@@ -63,6 +64,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.4",
     "globals": "^17.11.0",
+    "localtunnel": "^2.0.2",
     "vite": "^8.2.2",
     "wait-on": "^9.5.1"
   }
