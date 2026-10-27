@@ -58,19 +58,62 @@ export const Owners = () => {
     fetchOwners();
   }, []);
 
+  // Helper to reliably get owner category / entity type
+  const getOwnerType = (o) => {
+    const rawType = (o?.type || "").toLowerCase().trim();
+    if (rawType && ["government", "private", "panchayat", "municipality"].includes(rawType)) {
+      return rawType;
+    }
+    // Fallback: Check associated towers' land_type
+    const towersList = Array.isArray(o?.towers) ? o.towers : [];
+    if (towersList.length > 0) {
+      const land = (towersList[0]?.land_type || "").toLowerCase().trim();
+      if (land === "government") return "government";
+      if (land === "panchayat" || land === "village") return "panchayat";
+      if (land === "municipality") return "municipality";
+      if (land === "private") return "private";
+    }
+    // Default fallback to government if associated with a govt site, else private
+    return rawType || "government";
+  };
+
+  const getOwnerTowerCount = (o) => {
+    if (o?.towers_count !== undefined && o?.towers_count !== null) return Number(o.towers_count);
+    if (Array.isArray(o?.towers)) return o.towers.length;
+    return 0;
+  };
+
   // Filtered owners list
   const filteredOwners = useMemo(() => {
     if (categoryFilter === "all") return owners;
-    return owners.filter((o) => (o.type || "").toLowerCase() === categoryFilter.toLowerCase());
+    return owners.filter((o) => {
+      const t = getOwnerType(o);
+      if (categoryFilter === "panchayat_municipality") {
+        return t === "panchayat" || t === "municipality";
+      }
+      return t === categoryFilter.toLowerCase();
+    });
   }, [owners, categoryFilter]);
 
-  // Metrics
+  // Total Metrics
   const totalCount = owners.length;
-  const govtCount = owners.filter((o) => (o.type || "").toLowerCase() === "government").length;
-  const privateCount = owners.filter((o) => (o.type || "").toLowerCase() === "private").length;
-  const panchayatCount = owners.filter(
-    (o) => (o.type || "").toLowerCase() === "panchayat" || (o.type || "").toLowerCase() === "municipality"
-  ).length;
+  const totalTowersCount = owners.reduce((sum, o) => sum + getOwnerTowerCount(o), 0);
+
+  // Group metrics
+  const govtOwners = owners.filter((o) => getOwnerType(o) === "government");
+  const pvtOwners = owners.filter((o) => getOwnerType(o) === "private");
+  const panchayatOwners = owners.filter((o) => {
+    const t = getOwnerType(o);
+    return t === "panchayat" || t === "municipality";
+  });
+
+  const govtCount = govtOwners.length;
+  const privateCount = pvtOwners.length;
+  const panchayatCount = panchayatOwners.length;
+
+  const govtTowersCount = govtOwners.reduce((sum, o) => sum + getOwnerTowerCount(o), 0);
+  const pvtTowersCount = pvtOwners.reduce((sum, o) => sum + getOwnerTowerCount(o), 0);
+  const panchayatTowersCount = panchayatOwners.reduce((sum, o) => sum + getOwnerTowerCount(o), 0);
 
   const getOwnerPhone = (o) => {
     if (!o) return "";
@@ -81,7 +124,7 @@ export const Owners = () => {
     setModalMode("create");
     setFormData({
       name: "",
-      type: "private",
+      type: "government",
       contact_number: "",
       email: "",
       address: "",
@@ -95,7 +138,7 @@ export const Owners = () => {
     setSelectedOwner(owner);
     setFormData({
       name: owner.name || "",
-      type: owner.type || "private",
+      type: getOwnerType(owner),
       contact_number: getOwnerPhone(owner),
       email: owner.email || "",
       address: owner.address || "",
@@ -163,7 +206,7 @@ export const Owners = () => {
       key: "name",
       title: "Owner / Entity",
       render: (val, row) => {
-        const typeStr = String(row.type || "").toLowerCase();
+        const typeStr = getOwnerType(row);
         const isGovt = typeStr === "government";
         const isPanchayat = typeStr === "panchayat" || typeStr === "municipality";
 
@@ -175,12 +218,12 @@ export const Owners = () => {
                 height: 36,
                 borderRadius: "var(--radius-md)",
                 background: isGovt
-                  ? "rgba(79, 70, 229, 0.15)"
+                  ? "rgba(16, 185, 129, 0.15)"
                   : isPanchayat
                   ? "rgba(245, 158, 11, 0.15)"
                   : "rgba(6, 182, 212, 0.15)",
                 color: isGovt
-                  ? "var(--primary-light)"
+                  ? "#10b981"
                   : isPanchayat
                   ? "var(--warning)"
                   : "var(--accent-cyan)",
@@ -190,7 +233,7 @@ export const Owners = () => {
                 flexShrink: 0,
               }}
             >
-              {isGovt ? <Building2 size={18} /> : isPanchayat ? <Landmark size={18} /> : <User size={18} />}
+              {isGovt ? <Shield size={18} /> : isPanchayat ? <Landmark size={18} /> : <User size={18} />}
             </div>
             <div>
               <div style={{ fontWeight: 700, color: "var(--text-primary)", whiteSpace: "nowrap" }}>{val}</div>
@@ -205,18 +248,18 @@ export const Owners = () => {
     {
       key: "type",
       title: "Category",
-      render: (val) => {
-        const typeStr = String(val || "").toLowerCase();
+      render: (val, row) => {
+        const typeStr = getOwnerType(row);
         if (typeStr === "government") {
-          return <span className="badge badge-success" style={{ whiteSpace: "nowrap" }}>Government Body</span>;
+          return <span className="badge badge-success" style={{ whiteSpace: "nowrap" }}>• Government Body</span>;
         }
         if (typeStr === "panchayat") {
-          return <span className="badge badge-warning" style={{ whiteSpace: "nowrap" }}>Village Panchayat</span>;
+          return <span className="badge badge-warning" style={{ whiteSpace: "nowrap" }}>• Village Panchayat</span>;
         }
         if (typeStr === "municipality") {
-          return <span className="badge badge-warning" style={{ whiteSpace: "nowrap" }}>Municipal Council</span>;
+          return <span className="badge badge-warning" style={{ whiteSpace: "nowrap" }}>• Municipal Council</span>;
         }
-        return <span className="badge badge-info" style={{ whiteSpace: "nowrap" }}>Private Owner</span>;
+        return <span className="badge badge-info" style={{ whiteSpace: "nowrap" }}>• Private Owner</span>;
       },
     },
     {
@@ -335,10 +378,13 @@ export const Owners = () => {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
               <div style={{ fontSize: "0.78rem", fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase" }}>
-                Total Owners
+                Total Towers
               </div>
               <div style={{ fontSize: "1.6rem", fontWeight: 800, marginTop: 4 }}>
-                {totalCount}
+                {totalTowersCount || totalCount}
+              </div>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 2 }}>
+                {totalCount} Registered Owner{totalCount === 1 ? "" : "s"}
               </div>
             </div>
             <div
@@ -353,7 +399,7 @@ export const Owners = () => {
                 justifyContent: "center",
               }}
             >
-              <Building2 size={22} />
+              <Radio size={22} />
             </div>
           </div>
         </div>
@@ -365,7 +411,10 @@ export const Owners = () => {
                 Government Bodies
               </div>
               <div style={{ fontSize: "1.6rem", fontWeight: 800, color: "#10b981", marginTop: 4 }}>
-                {govtCount}
+                {govtTowersCount || govtCount}
+              </div>
+              <div style={{ fontSize: "0.75rem", color: "#10b981", marginTop: 2 }}>
+                {govtCount} Entity • {govtTowersCount} Tower{govtTowersCount === 1 ? "" : "s"}
               </div>
             </div>
             <div
@@ -392,7 +441,10 @@ export const Owners = () => {
                 Private Owners
               </div>
               <div style={{ fontSize: "1.6rem", fontWeight: 800, color: "#38bdf8", marginTop: 4 }}>
-                {privateCount}
+                {pvtTowersCount || privateCount}
+              </div>
+              <div style={{ fontSize: "0.75rem", color: "#38bdf8", marginTop: 2 }}>
+                {privateCount} Owner{privateCount === 1 ? "" : "s"} • {pvtTowersCount} Tower{pvtTowersCount === 1 ? "" : "s"}
               </div>
             </div>
             <div
@@ -419,7 +471,10 @@ export const Owners = () => {
                 Panchayats / Municipalities
               </div>
               <div style={{ fontSize: "1.6rem", fontWeight: 800, color: "#f59e0b", marginTop: 4 }}>
-                {panchayatCount}
+                {panchayatTowersCount || panchayatCount}
+              </div>
+              <div style={{ fontSize: "0.75rem", color: "#f59e0b", marginTop: 2 }}>
+                {panchayatCount} Local Bod{panchayatCount === 1 ? "y" : "ies"} • {panchayatTowersCount} Tower{panchayatTowersCount === 1 ? "" : "s"}
               </div>
             </div>
             <div
@@ -475,7 +530,8 @@ export const Owners = () => {
           >
             <option value="all">All Owner Categories</option>
             <option value="government">Government Bodies</option>
-            <option value="private">Private Landowners</option>
+            <option value="private">Private Owners</option>
+            <option value="panchayat_municipality">Panchayats & Municipalities</option>
             <option value="panchayat">Village Panchayats</option>
             <option value="municipality">Municipal Councils</option>
           </select>

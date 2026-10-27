@@ -6,13 +6,13 @@ class OwnerSerializer(serializers.ModelSerializer):
     contact_number = serializers.CharField(source='phone', required=False, allow_null=True, allow_blank=True)
     towers_count   = serializers.SerializerMethodField()
     towers         = serializers.SerializerMethodField()
-    type           = serializers.CharField(required=False, allow_null=True, allow_blank=True, write_only=True)
+    type           = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
     class Meta:
         model  = Owner
         fields = [
-            'id', 'name', 'phone', 'contact_number', 'email', 'address',
-            'towers_count', 'towers', 'type', 'created_at', 'updated_at',
+            'id', 'name', 'type', 'phone', 'contact_number', 'email', 'address',
+            'towers_count', 'towers', 'created_at', 'updated_at',
         ]
         read_only_fields = ['created_at', 'updated_at']
 
@@ -30,10 +30,13 @@ class OwnerSerializer(serializers.ModelSerializer):
             for t in obj.towers.all()
         ]
 
-    def create(self, validated_data):
-        validated_data.pop('type', None)
-        return super().create(validated_data)
-
-    def update(self, instance, validated_data):
-        validated_data.pop('type', None)
-        return super().update(instance, validated_data)
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # If type is empty or null, derive from associated towers' land_type
+        if not data.get('type'):
+            first_tower = instance.towers.first()
+            if first_tower and first_tower.land_type:
+                data['type'] = first_tower.land_type
+            else:
+                data['type'] = 'government'
+        return data

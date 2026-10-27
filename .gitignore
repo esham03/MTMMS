@@ -78,6 +78,7 @@ mobile_tower_app/ios/Flutter/flutter_export_environment.sh
 *.pps
 *.ppsx
 *.odp
+!Final_Project_Presentation.pptx
 
 # --- IDE & Editor Configuration ---
 .idea/
