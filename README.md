@@ -175,32 +175,71 @@ The compiled release APK is included in the repository:
 
 ---
 
+## 📊 Project Presentation & Viva Defense
+
+The repository includes the official project presentation for review and evaluation:
+- **Presentation File:** [`Final_Project_Presentation.pptx`](file:///c:/MTMMS/Final_Project_Presentation.pptx) (~900 KB)
+- **Format:** 12 slides, clean academic white theme, structured for university evaluation and departmental review.
+- **Coverage:** Problem statement, statutory Right-of-Way (RoW) framework, enterprise 4-tier architecture, 3NF schema, UDP discovery, GIS mapping, Form VII statutory notices, individual contributions, and QA validation.
+
+---
+
+## 📸 Verified Application Screenshots
+
+High-resolution application screenshots demonstrating live system modules:
+- **[01. System Login](screenshots/01_login.png):** Secure portal authentication with SimpleJWT bearer issuance.
+- **[02. Executive Dashboard](screenshots/02_dashboard.png):** Real-time infrastructure statistics, district roll-ups, and operator breakdown.
+- **[03. Tower Asset Registry](screenshots/03_tower_registry.png):** Comprehensive tower dossiers, structural heights, and carrier tenancy.
+- **[04. GIS Spatial Map View](screenshots/04_gis_map_view.png):** Interactive Leaflet map with GPS coordinates (Ponda Police Station premises).
+- **[05. Rent & Lease Management](screenshots/05_rent_management.png):** Annual lease rent engine, statutory 5-year cycles, and payment ledgers.
+- **[06. Form VII Statutory Notice](screenshots/06_form_vii_notice.png):** Auto-generated Goa Government demand notice with 5% statutory late surcharge.
+- **[07. 4-Tier Location Browser](screenshots/07_location_hierarchy.png):** District → Constituency → Taluka → Area hierarchical drilldown across 101 Goa areas.
+- **[08. Operator Co-Location](screenshots/08_operators.png):** Multi-tenant carrier tracking (Airtel, Jio, Vi, BSNL) sharing physical infrastructure.
+- **[09. Reports & Analytics](screenshots/09_reports_analytics.png):** Exportable compliance ledgers and revenue audit reports.
+
+---
+
 ## 📁 Repository Structure
 
 ```
 c:\MTMMS
+├── Final_Project_Presentation.pptx # Official 12-slide project presentation
 ├── Start-Live-System.bat         # Main launcher for all MTMMS services
 ├── Stop-System.bat               # Clean shutdown script for all services
 ├── Launch-Desktop-App.bat        # Standalone Electron desktop app launcher
 ├── Setup-Firewall.bat            # Windows Firewall rules configuration
+├── start-desktop-dev.bat         # Electron desktop development launcher
 ├── NETWORK_SETUP.md              # Detailed network switching & troubleshooting guide
-├── mtmms.sql                     # Full MySQL schema and initial seed data
-├── MTMMS.apk                     # Precompiled Android release APK
+├── mtmms.sql                     # Full MySQL 3NF schema and initial seed data
+├── MTMMS.apk                     # Precompiled Android release APK (~55.5 MB)
+├── .mtmms-runtime.env            # Active runtime network configuration
 │
-├── mtmms_api/                    # Django REST API Backend
+├── screenshots/                  # Verified live application screenshots (01–09)
+│
+├── mtmms_api/                    # Django REST API Backend (Python 3.12 / Django 5.1)
 │   ├── manage.py
-│   ├── network_utils.py          # Multi-adapter detection & config generator
-│   ├── discovery_service.py      # UDP 41588 broadcast discovery daemon
 │   ├── requirements.txt          # Python dependencies
+│   ├── network_utils.py          # Multi-adapter detection & health checks
+│   ├── discovery_service.py      # UDP 41588 broadcast discovery daemon
 │   ├── mtmms_project/            # Project configuration & settings
-│   └── api/                      # REST endpoints (auth, towers, rents, reports)
+│   └── apps/                     # 9 Modular Django applications:
+│       ├── towers/               # Tower structural specifications & coordinates
+│       ├── locations/            # 4-tier hierarchy (District → Taluka → Area)
+│       ├── operators/            # Telecom carriers (Airtel, Jio, Vi, BSNL)
+│       ├── owners/               # Landowner profiles (Government & Private)
+│       ├── rent_payments/        # Financial lease ledgers & arrears
+│       ├── reports/              # Custom reporting and statutory exports
+│       ├── dashboard/            # Executive KPI statistics
+│       ├── users/                # Administrative user management
+│       └── auth_app/             # SimpleJWT token authentication
 │
-├── web/                          # React / Vite Web & Electron Frontend
+├── web/                          # React 19 Web & Electron Desktop Frontend
 │   ├── package.json
 │   ├── vite.config.js
-│   ├── tunnel.cjs                # HTTPS cloud tunnel service (localtunnel)
+│   ├── tunnel.cjs                # HTTPS cloud tunnel service (Localtunnel)
 │   ├── electron/                 # Electron main and preload processes
-│   ├── dist-desktop/             # Standalone MTMMS Desktop application build
+│   ├── dist/                     # Compiled production web bundle
+│   ├── dist-desktop/             # Standalone MTMMS Desktop.exe executable
 │   └── src/
 │       ├── api/api.js            # Centralized dynamic multi-network API client
 │       ├── context/              # Authentication & App state management
@@ -209,9 +248,10 @@ c:\MTMMS
 │
 └── mobile_tower_app/             # Flutter Native Android Application
     ├── pubspec.yaml
+    ├── app-release.apk           # Compiled release Android binary
     └── lib/
         ├── config/               # Server configuration endpoints
-        ├── services/             # Auto-discovery & REST API communication
+        ├── services/             # UDP auto-discovery & REST communication
         └── screens/              # Splash, Login, Tower Map, Inspection Audits
 ```
 
@@ -233,7 +273,17 @@ python mtmms_api/network_utils.py health http://127.0.0.1:8000/api/health/
 
 ---
 
+## 👨‍💻 Project Authorship & Mentorship
+
+- **Developer:** **Esham Uday Chari** (Roll No: 23B-IT-503)  
+  *Department of Information Technology, Goa College of Engineering (GEC), Farmagudi, Ponda, Goa*
+- **Department Mentor:** **Ms. Soniya Usgaonkar**  
+  *Department of Information Technology, Electronics & Communications (DoIT), Government of Goa*
+- **Academic Year:** 2026–2027
+
+---
+
 ## 📄 License & Ownership
 
 **Government of Goa — Department of Information Technology, Electronics & Communications.**  
-All rights reserved. Proprietary software developed for official state governance and infrastructure regulation.
+All rights reserved. Proprietary software developed for official state governance and telecommunications infrastructure regulation.
