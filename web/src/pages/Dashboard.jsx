@@ -682,6 +682,171 @@ export const Dashboard = () => {
         )}
       </div>
 
+      {/* Upcoming Renewals & Recent Rent Escalations Telemetry */}
+      <div className="grid-cols-2" style={{ marginBottom: 24 }}>
+        {/* Panel 1: Upcoming Renewals */}
+        <div className="card">
+          <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: "var(--radius-sm)",
+                  background: "rgba(245, 158, 11, 0.15)",
+                  color: "#f59e0b",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <TrendingUp size={18} />
+              </div>
+              <div>
+                <h3 className="card-title">Upcoming Agreement Renewals</h3>
+                <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                  Towers due for lease renewal in next 90 days
+                </p>
+              </div>
+            </div>
+            <button className="btn btn-outline btn-sm" onClick={() => navigate("/rent")}>
+              <span>Rent Matrix</span>
+              <ArrowRight size={13} />
+            </button>
+          </div>
+
+          {(!stats?.upcoming_renewals || stats.upcoming_renewals.length === 0) ? (
+            <div style={{ padding: "28px 0", textAlign: "center", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+              <CheckCircle2 size={28} color="#34d399" style={{ opacity: 0.8, marginBottom: 6 }} />
+              <p>All rental agreements are current — no renewals due in next 90 days.</p>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {stats.upcoming_renewals.map((item) => (
+                <div
+                  key={item.tower_id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "10px 14px",
+                    background: "var(--bg-surface-elevated)",
+                    border: "1px solid var(--border-color)",
+                    borderRadius: "var(--radius-sm)",
+                  }}
+                >
+                  <div>
+                    <strong
+                      style={{ color: "var(--accent-cyan)", cursor: "pointer", fontSize: "0.9rem" }}
+                      onClick={() => navigate(`/towers/${item.tower_id}`)}
+                    >
+                      {item.tower_unique_id}
+                    </strong>
+                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                      {item.location} • {item.owner}
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 12 }}>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "var(--text-primary)" }}>
+                        ₹{Number(item.yearly_rent || 0).toLocaleString("en-IN")}/yr
+                      </div>
+                      <div style={{ fontSize: "0.72rem", color: item.is_overdue ? "#ef4444" : "#f59e0b", fontWeight: 600 }}>
+                        Renewal: {item.next_renewal_date || "Pending"}
+                      </div>
+                    </div>
+                    <button
+                      className="btn btn-warning btn-sm"
+                      onClick={() => navigate(`/towers/${item.tower_id}?action=renew`)}
+                      style={{ padding: "4px 8px", fontSize: "0.75rem" }}
+                    >
+                      Renew
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Panel 2: Recent Rent Escalations */}
+        <div className="card">
+          <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: "var(--radius-sm)",
+                  background: "rgba(16, 185, 129, 0.15)",
+                  color: "#10b981",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <CheckCircle2 size={18} />
+              </div>
+              <div>
+                <h3 className="card-title">Recently Escalated Towers</h3>
+                <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                  Confirmed statutory lease increases and revisions
+                </p>
+              </div>
+            </div>
+            <button className="btn btn-outline btn-sm" onClick={() => navigate("/reports?type=escalations")}>
+              <span>Audit Report</span>
+              <ArrowRight size={13} />
+            </button>
+          </div>
+
+          {(!stats?.recent_escalations || stats.recent_escalations.length === 0) ? (
+            <div style={{ padding: "28px 0", textAlign: "center", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+              <p>No recent rent revisions recorded yet.</p>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {stats.recent_escalations.map((r) => (
+                <div
+                  key={r.id || r.renewal_reference}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "10px 14px",
+                    background: "var(--bg-surface-elevated)",
+                    border: "1px solid var(--border-color)",
+                    borderRadius: "var(--radius-sm)",
+                  }}
+                >
+                  <div>
+                    <strong
+                      style={{ color: "var(--accent-cyan)", cursor: "pointer", fontSize: "0.9rem" }}
+                      onClick={() => navigate(`/towers/${r.tower_id}`)}
+                    >
+                      {r.tower_unique_id}
+                    </strong>
+                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                      Ref: {r.renewal_reference} • Approved by {r.approved_by_name}
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontWeight: 800, fontSize: "0.95rem", color: "#10b981" }}>
+                      ₹{Number(r.new_yearly_rent || 0).toLocaleString("en-IN")}/yr
+                    </div>
+                    <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                      +{r.escalation_percentage}% (+₹{Number(r.increase_amount || 0).toLocaleString("en-IN")}) • {r.effective_date}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Quick Operational Action Bar */}
       <div className="card quick-actions-card">
         <div

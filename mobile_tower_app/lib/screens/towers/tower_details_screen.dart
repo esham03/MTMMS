@@ -23,6 +23,7 @@ class _TowerDetailsScreenState extends State<TowerDetailsScreen> {
   bool _isAdmin = false;
   bool _hasUpdated = false;
   List<Map<String, dynamic>> _payments = [];
+  List<Map<String, dynamic>> _renewals = [];
 
   @override
   void initState() {
@@ -53,6 +54,7 @@ class _TowerDetailsScreenState extends State<TowerDetailsScreen> {
         setState(() => _isLoading = false);
       }
       _fetchPayments();
+      _fetchRenewals();
     } catch (_) {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -63,6 +65,15 @@ class _TowerDetailsScreenState extends State<TowerDetailsScreen> {
     try {
       final payments = await ApiService.getTowerPayments(towerId.toString());
       if (mounted) setState(() => _payments = payments);
+    } catch (_) {}
+  }
+
+  Future<void> _fetchRenewals() async {
+    final id = _towerData['dbId'] ?? _towerData['id'];
+    if (id == null) return;
+    try {
+      final renewals = await ApiService.getTowerRenewals(id.toString());
+      if (mounted) setState(() => _renewals = renewals);
     } catch (_) {}
   }
 
@@ -611,6 +622,1020 @@ class _TowerDetailsScreenState extends State<TowerDetailsScreen> {
     );
   }
 
+  Future<void> _showAdjustRateDialog() async {
+    final rawTowerDbId = _towerData['dbId'] ?? _towerData['id'];
+    if (rawTowerDbId == null) return;
+
+    final initialEscEnabled = (_val('escalation_enabled', 'true').toLowerCase() == 'true' || _val('escalation_enabled', 'true') == '1');
+    final initialEscPct = double.tryParse(_val('escalation_percentage', '10.0')) ?? 10.0;
+    final currentRent = double.tryParse(_val('yearly_rent', '60000')) ?? 60000.0;
+
+    bool escalationEnabled = initialEscEnabled;
+    final rateCtrl = TextEditingController(text: initialEscPct.toStringAsFixed(1).replaceAll('.0', ''));
+    bool isSaving = false;
+    String? errorMsg;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final rateVal = double.tryParse(rateCtrl.text.trim()) ?? 0.0;
+            final incVal = escalationEnabled ? (currentRent * rateVal / 100.0) : 0.0;
+            final projNextRent = currentRent + incVal;
+
+            return Container(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              ),
+              decoration: BoxDecoration(
+                color: AppColors.surfaceBg(ctx),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: AppColors.dividerCol(ctx),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: AppColors.primarySurf(ctx),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(Icons.trending_up_rounded, color: AppColors.primaryLight, size: 20),
+                            ),
+                            const SizedBox(width: 10),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'ADJUST ESCALATION RATE',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.textPri(ctx),
+                                  ),
+                                ),
+                                Text(
+                                  _val('towerId', _val('id', 'TWR')),
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 11,
+                                    color: AppColors.textSec(ctx),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => Navigator.pop(sheetContext),
+                        ),
+                      ],
+                    ),
+                    Divider(height: 16, color: AppColors.dividerCol(ctx)),
+                    if (errorMsg != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: AppColors.error.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+                        ),
+                        child: Text(
+                          errorMsg!,
+                          style: GoogleFonts.poppins(color: AppColors.error, fontSize: 12),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardBg(ctx),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: AppColors.borderCol(ctx)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Automatic Rent Escalation',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textPri(ctx),
+                                ),
+                              ),
+                              Text(
+                                escalationEnabled ? 'Enabled on renewal' : 'Disabled (fixed rent)',
+                                style: GoogleFonts.poppins(fontSize: 10.5, color: AppColors.textSec(ctx)),
+                              ),
+                            ],
+                          ),
+                          Switch(
+                            value: escalationEnabled,
+                            activeColor: AppColors.primaryLight,
+                            onChanged: (val) {
+                              setModalState(() => escalationEnabled = val);
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (escalationEnabled) ...[
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: rateCtrl,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600),
+                        decoration: const InputDecoration(
+                          labelText: 'Escalation Percentage (%) *',
+                          suffixText: '%',
+                          prefixIcon: Icon(Icons.percent_rounded, size: 18),
+                        ),
+                        onChanged: (_) => setModalState(() {}),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [5.0, 8.0, 10.0, 12.0, 15.0, 20.0].map((rate) {
+                          final isSelected = double.tryParse(rateCtrl.text.trim()) == rate;
+                          return ChoiceChip(
+                            label: Text('${rate.toInt()}%'),
+                            labelStyle: GoogleFonts.poppins(
+                              fontSize: 11,
+                              fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                              color: isSelected ? Colors.white : AppColors.textPri(ctx),
+                            ),
+                            selected: isSelected,
+                            selectedColor: AppColors.primary,
+                            backgroundColor: AppColors.surfaceBg(ctx),
+                            onSelected: (_) {
+                              setModalState(() => rateCtrl.text = rate.toInt().toString());
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.primarySurf(ctx),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: AppColors.primaryLight.withValues(alpha: 0.3)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'ESCALATION PROJECTION',
+                              style: GoogleFonts.poppins(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primaryLight,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Current Rent:', style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSec(ctx))),
+                                Text('₹${currentRent.toStringAsFixed(0)} / yr', style: GoogleFonts.poppins(fontSize: 11.5, fontWeight: FontWeight.w600)),
+                              ],
+                            ),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Increase Amount:', style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSec(ctx))),
+                                Text('+₹${incVal.toStringAsFixed(0)}', style: GoogleFonts.poppins(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppColors.success)),
+                              ],
+                            ),
+                            Divider(height: 12, color: AppColors.dividerCol(ctx)),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('Projected Next Rent:', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700)),
+                                Text('₹${projNextRent.toStringAsFixed(0)} / yr', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.primaryLight)),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(sheetContext),
+                            child: const Text('Cancel'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: ElevatedButton.icon(
+                            icon: isSaving
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Icon(Icons.check_circle_outline_rounded, size: 18),
+                            label: Text(isSaving ? 'Saving...' : 'Save Escalation Rate'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            onPressed: isSaving
+                                ? null
+                                : () async {
+                                    final pct = double.tryParse(rateCtrl.text.trim());
+                                    if (escalationEnabled && (pct == null || pct < 0 || pct > 100)) {
+                                      setModalState(() => errorMsg = 'Please enter a valid rate between 0% and 100%');
+                                      return;
+                                    }
+                                    setModalState(() {
+                                      isSaving = true;
+                                      errorMsg = null;
+                                    });
+
+                                    final ok = await ApiService.updateTowerEscalation(
+                                      rawTowerDbId.toString(),
+                                      {
+                                        'escalation_enabled': escalationEnabled,
+                                        'escalation_percentage': pct ?? 0.0,
+                                      },
+                                    );
+
+                                    if (!mounted) return;
+                                    if (sheetContext.mounted) {
+                                      Navigator.pop(sheetContext);
+                                    }
+
+                                    if (ok) {
+                                      _hasUpdated = true;
+                                      _fetchDetails();
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text('Escalation configuration updated successfully to ${pct ?? 0}%!'),
+                                          backgroundColor: AppColors.success,
+                                        ),
+                                      );
+                                    } else {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(
+                                          content: Text('Failed to update escalation rate.'),
+                                          backgroundColor: AppColors.error,
+                                        ),
+                                      );
+                                    }
+                                  },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showRenewalDialog() async {
+    final rawTowerDbId = _towerData['dbId'] ?? _towerData['id'];
+    if (rawTowerDbId == null) return;
+
+    final currentCycleYears = int.tryParse(_val('rent_cycle_years', '5')) ?? 5;
+    int selectedCycle = currentCycleYears > 0 ? currentCycleYears : 5;
+
+    String defaultStartDate = _val('next_renewal_date');
+    if (defaultStartDate == '—' || defaultStartDate.isEmpty) {
+      defaultStartDate = _val('agreement_end_date');
+    }
+    if (defaultStartDate == '—' || defaultStartDate.isEmpty) {
+      defaultStartDate = DateTime.now().toIso8601String().substring(0, 10);
+    }
+
+    DateTime parsedStart = DateTime.tryParse(defaultStartDate) ?? DateTime.now();
+    DateTime parsedEnd = DateTime(parsedStart.year + selectedCycle, parsedStart.month, parsedStart.day);
+
+    String startDateStr = defaultStartDate;
+    String endDateStr = parsedEnd.toIso8601String().substring(0, 10);
+
+    bool isManualOverride = false;
+    final overrideRentCtrl = TextEditingController();
+    final overrideReasonCtrl = TextEditingController();
+
+    final initialEscEnabled = (_val('escalation_enabled', 'true').toLowerCase() == 'true' || _val('escalation_enabled', 'true') == '1');
+    final initialEscPct = double.tryParse(_val('escalation_percentage', '10.0')) ?? 10.0;
+    bool escalationEnabled = initialEscEnabled;
+    final escalationRateCtrl = TextEditingController(text: initialEscPct.toStringAsFixed(1).replaceAll('.0', ''));
+
+    bool isPreviewLoading = true;
+    bool isSubmitting = false;
+    Map<String, dynamic>? previewData;
+    String? previewError;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            void loadPreview() async {
+              setModalState(() {
+                isPreviewLoading = true;
+                previewError = null;
+              });
+              try {
+                final customPct = double.tryParse(escalationRateCtrl.text.trim());
+                final preview = await ApiService.previewRenewal(
+                  rawTowerDbId.toString(),
+                  cycleYears: selectedCycle,
+                  newStartDate: startDateStr,
+                  newEndDate: endDateStr,
+                  customPercentage: customPct,
+                  escalationEnabled: escalationEnabled,
+                );
+                setModalState(() {
+                  previewData = preview;
+                  isPreviewLoading = false;
+                  if (!isManualOverride && preview['proposed_new_annual_rent'] != null) {
+                    overrideRentCtrl.text = preview['proposed_new_annual_rent'].toString();
+                  }
+                });
+              } catch (e) {
+                setModalState(() {
+                  previewError = e.toString().replaceAll('Exception: ', '');
+                  isPreviewLoading = false;
+                });
+              }
+            }
+
+            if (previewData == null && isPreviewLoading && previewError == null) {
+              loadPreview();
+            }
+
+            final prevRent = previewData?['previous_annual_rent'] ?? _val('yearly_rent', '60000');
+            final escRate = previewData?['escalation_percentage'] ?? _val('escalation_percentage', '10');
+            final incAmount = previewData?['increase_amount'] ?? 0;
+            final propRent = previewData?['proposed_new_annual_rent'] ?? previewData?['new_annual_rent'] ?? prevRent;
+            final isEscEnabled = previewData?['is_escalation_enabled'] ?? (_val('escalation_enabled', 'true').toLowerCase() == 'true');
+
+            return Container(
+              height: MediaQuery.of(ctx).size.height * 0.88,
+              decoration: BoxDecoration(
+                color: AppColors.surfaceBg(ctx),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 10, bottom: 6),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppColors.dividerCol(ctx),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: AppColors.primarySurf(ctx),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(Icons.autorenew_rounded, color: AppColors.primaryLight, size: 20),
+                            ),
+                            const SizedBox(width: 10),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'RENEW LEASE AGREEMENT',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.textPri(ctx),
+                                  ),
+                                ),
+                                Text(
+                                  'Statutory Rent Escalation Workflow',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 11,
+                                    color: AppColors.textSec(ctx),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => Navigator.pop(sheetContext),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Divider(height: 1, color: AppColors.dividerCol(ctx)),
+                  Expanded(
+                    child: ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.primarySurf(ctx),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.primaryLight.withValues(alpha: 0.2)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    _val('towerId', _val('id', 'TWR')),
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.textPri(ctx),
+                                    ),
+                                  ),
+                                  StatusBadge(
+                                    status: isEscEnabled ? 'Escalation Active ($escRate%)' : 'Escalation Disabled',
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Location: ${_val('area')}, ${_val('taluka')}, ${_val('district')}',
+                                style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSec(ctx)),
+                              ),
+                              Text(
+                                'Owner: ${_val('owner')} • Operator: ${_val('operator')}',
+                                style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSec(ctx)),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          'RENEWAL DURATION & SCHEDULE',
+                          style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primaryLight,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        DropdownButtonFormField<int>(
+                          value: selectedCycle,
+                          decoration: const InputDecoration(
+                            labelText: 'Renewal Agreement Duration',
+                            prefixIcon: Icon(Icons.timelapse_rounded, size: 18),
+                          ),
+                          items: const [
+                            DropdownMenuItem(value: 1, child: Text('1 Year Cycle')),
+                            DropdownMenuItem(value: 2, child: Text('2 Years Cycle')),
+                            DropdownMenuItem(value: 3, child: Text('3 Years Cycle')),
+                            DropdownMenuItem(value: 5, child: Text('5 Years Cycle (Standard)')),
+                            DropdownMenuItem(value: 10, child: Text('10 Years Cycle')),
+                          ],
+                          onChanged: (val) {
+                            if (val != null) {
+                              selectedCycle = val;
+                              final s = DateTime.tryParse(startDateStr) ?? DateTime.now();
+                              final e = DateTime(s.year + selectedCycle, s.month, s.day);
+                              endDateStr = e.toIso8601String().substring(0, 10);
+                              loadPreview();
+                            }
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: InkWell(
+                                onTap: () async {
+                                  final cur = DateTime.tryParse(startDateStr) ?? DateTime.now();
+                                  final picked = await showDatePicker(
+                                    context: ctx,
+                                    initialDate: cur,
+                                    firstDate: DateTime(2000),
+                                    lastDate: DateTime(2050),
+                                  );
+                                  if (picked != null) {
+                                    startDateStr = picked.toIso8601String().substring(0, 10);
+                                    final e = DateTime(picked.year + selectedCycle, picked.month, picked.day);
+                                    endDateStr = e.toIso8601String().substring(0, 10);
+                                    loadPreview();
+                                  }
+                                },
+                                child: InputDecorator(
+                                  decoration: const InputDecoration(
+                                    labelText: 'Start Date',
+                                    prefixIcon: Icon(Icons.calendar_today_rounded, size: 16),
+                                  ),
+                                  child: Text(
+                                    startDateStr,
+                                    style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: InkWell(
+                                onTap: () async {
+                                  final cur = DateTime.tryParse(endDateStr) ?? DateTime.now();
+                                  final picked = await showDatePicker(
+                                    context: ctx,
+                                    initialDate: cur,
+                                    firstDate: DateTime(2000),
+                                    lastDate: DateTime(2050),
+                                  );
+                                  if (picked != null) {
+                                    endDateStr = picked.toIso8601String().substring(0, 10);
+                                    loadPreview();
+                                  }
+                                },
+                                child: InputDecorator(
+                                  decoration: const InputDecoration(
+                                    labelText: 'End Date',
+                                    prefixIcon: Icon(Icons.event_available_rounded, size: 16),
+                                  ),
+                                  child: Text(
+                                    endDateStr,
+                                    style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          'RENT ESCALATION RATE SETTINGS',
+                          style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.primaryLight,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.cardBg(ctx),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: AppColors.borderCol(ctx)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Apply Automatic Escalation',
+                                        style: GoogleFonts.poppins(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppColors.textPri(ctx),
+                                        ),
+                                      ),
+                                      Text(
+                                        escalationEnabled ? 'Compound rent on renewal' : 'Fixed rent renewal (0% increase)',
+                                        style: GoogleFonts.poppins(fontSize: 10.5, color: AppColors.textSec(ctx)),
+                                      ),
+                                    ],
+                                  ),
+                                  Switch(
+                                    value: escalationEnabled,
+                                    activeColor: AppColors.primaryLight,
+                                    onChanged: (val) {
+                                      setModalState(() {
+                                        escalationEnabled = val;
+                                        loadPreview();
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                              if (escalationEnabled) ...[
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: TextFormField(
+                                        controller: escalationRateCtrl,
+                                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                        style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600),
+                                        decoration: const InputDecoration(
+                                          labelText: 'Escalation Rate (%)',
+                                          suffixText: '%',
+                                          prefixIcon: Icon(Icons.percent_rounded, size: 16),
+                                        ),
+                                        onChanged: (_) => loadPreview(),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: [
+                                    ...[5.0, 8.0, 10.0, 12.0, 15.0, 20.0].map((rate) {
+                                      final isSelected = double.tryParse(escalationRateCtrl.text.trim()) == rate;
+                                      return ChoiceChip(
+                                        label: Text('${rate.toInt()}%'),
+                                        labelStyle: GoogleFonts.poppins(
+                                          fontSize: 11,
+                                          fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                          color: isSelected ? Colors.white : AppColors.textPri(ctx),
+                                        ),
+                                        selected: isSelected,
+                                        selectedColor: AppColors.primary,
+                                        backgroundColor: AppColors.surfaceBg(ctx),
+                                        onSelected: (_) {
+                                          setModalState(() {
+                                            escalationRateCtrl.text = rate.toInt().toString();
+                                            loadPreview();
+                                          });
+                                        },
+                                      );
+                                    }),
+                                    ActionChip(
+                                      label: Text('Reset (${initialEscPct.toInt()}%)'),
+                                      labelStyle: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSec(ctx)),
+                                      backgroundColor: AppColors.surfaceBg(ctx),
+                                      onPressed: () {
+                                        setModalState(() {
+                                          escalationRateCtrl.text = initialEscPct.toStringAsFixed(1).replaceAll('.0', '');
+                                          loadPreview();
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        if (isPreviewLoading)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 24),
+                            child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+                          )
+                        else if (previewError != null)
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.error.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+                            ),
+                            child: Text(
+                              'Preview Calculation Error: $previewError',
+                              style: GoogleFonts.poppins(color: AppColors.error, fontSize: 12),
+                            ),
+                          )
+                        else
+                          Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: AppColors.cardBg(ctx),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.borderCol(ctx)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'RENT REVISION SUMMARY',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.primaryLight,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                    StatusBadge(
+                                      status: isEscEnabled ? '+$escRate% Increase' : 'Flat Rent Renewal',
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Divider(height: 1, color: AppColors.dividerCol(ctx)),
+                                const SizedBox(height: 8),
+                                _summaryRow(ctx, 'Previous Annual Rent', '₹$prevRent / yr'),
+                                _summaryRow(
+                                  ctx,
+                                  'Escalation Percentage',
+                                  isEscEnabled ? '$escRate%' : '0.00% (Disabled)',
+                                ),
+                                _summaryRow(
+                                  ctx,
+                                  'Calculated Increase Amount',
+                                  '+₹$incAmount / yr',
+                                  highlightColor: AppColors.success,
+                                ),
+                                Divider(height: 14, color: AppColors.dividerCol(ctx)),
+                                _summaryRow(
+                                  ctx,
+                                  'Proposed New Annual Rent',
+                                  '₹$propRent / yr',
+                                  isBold: true,
+                                  highlightColor: AppColors.primaryLight,
+                                ),
+                                _summaryRow(ctx, 'Effective Period', '$startDateStr to $endDateStr ($selectedCycle Yrs)'),
+                              ],
+                            ),
+                          ),
+                        const SizedBox(height: 16),
+                        if (_isAdmin)
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: isManualOverride
+                                  ? AppColors.warning.withValues(alpha: 0.08)
+                                  : AppColors.primarySurf(ctx),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: isManualOverride
+                                    ? AppColors.warning.withValues(alpha: 0.4)
+                                    : AppColors.borderCol(ctx),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Manual Rent Override (Admin Discretion)',
+                                            style: GoogleFonts.poppins(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w600,
+                                              color: AppColors.textPri(ctx),
+                                            ),
+                                          ),
+                                          Text(
+                                            'Override automatically calculated escalation with custom rent',
+                                            style: GoogleFonts.poppins(
+                                              fontSize: 10.5,
+                                              color: AppColors.textSec(ctx),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    Switch(
+                                      value: isManualOverride,
+                                      activeColor: AppColors.warning,
+                                      onChanged: (val) {
+                                        setModalState(() {
+                                          isManualOverride = val;
+                                          if (val && overrideRentCtrl.text.isEmpty && previewData != null) {
+                                            overrideRentCtrl.text = propRent.toString();
+                                          }
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                ),
+                                if (isManualOverride) ...[
+                                  const SizedBox(height: 10),
+                                  TextFormField(
+                                    controller: overrideRentCtrl,
+                                    keyboardType: TextInputType.number,
+                                    style: GoogleFonts.poppins(fontSize: 13),
+                                    decoration: const InputDecoration(
+                                      labelText: 'Custom Annual Rent (₹) *',
+                                      prefixIcon: Icon(Icons.currency_rupee_rounded, size: 16),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  TextFormField(
+                                    controller: overrideReasonCtrl,
+                                    maxLines: 2,
+                                    style: GoogleFonts.poppins(fontSize: 12.5),
+                                    decoration: const InputDecoration(
+                                      labelText: 'Mandatory Justification / Order Reference *',
+                                      hintText: 'e.g. Special administrative waiver as per Order #DOIT-2026/84',
+                                      prefixIcon: Icon(Icons.edit_note_rounded, size: 18),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        const SizedBox(height: 20),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () => Navigator.pop(sheetContext),
+                                child: const Text('Cancel'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              flex: 2,
+                              child: ElevatedButton.icon(
+                                icon: isSubmitting
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      )
+                                    : const Icon(Icons.check_circle_outline_rounded, size: 18),
+                                label: Text(isSubmitting ? 'Confirming...' : 'Confirm Renewal'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.success,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                ),
+                                onPressed: isSubmitting || isPreviewLoading
+                                    ? null
+                                    : () async {
+                                        if (isManualOverride) {
+                                          final customVal = double.tryParse(overrideRentCtrl.text.trim());
+                                          if (customVal == null || customVal <= 0) {
+                                            ScaffoldMessenger.of(ctx).showSnackBar(
+                                              const SnackBar(
+                                                content: Text('Please enter a valid positive manual rent amount.'),
+                                                backgroundColor: AppColors.error,
+                                              ),
+                                            );
+                                            return;
+                                          }
+                                          if (overrideReasonCtrl.text.trim().length < 3) {
+                                            ScaffoldMessenger.of(ctx).showSnackBar(
+                                              const SnackBar(
+                                                content: Text('A valid justification reason is mandatory for manual override.'),
+                                                backgroundColor: AppColors.error,
+                                              ),
+                                            );
+                                            return;
+                                          }
+                                        }
+
+                                        setModalState(() => isSubmitting = true);
+                                        try {
+                                          final payload = <String, dynamic>{
+                                            'renewal_cycle_years': selectedCycle,
+                                            'new_agreement_start_date': startDateStr,
+                                            'new_agreement_end_date': endDateStr,
+                                            'is_manual_override': isManualOverride,
+                                            'escalation_enabled': escalationEnabled,
+                                            'escalation_percentage': double.tryParse(escalationRateCtrl.text.trim()) ?? initialEscPct,
+                                          };
+                                          if (isManualOverride) {
+                                            payload['manual_new_rent'] = double.parse(overrideRentCtrl.text.trim());
+                                            payload['override_reason'] = overrideReasonCtrl.text.trim();
+                                          }
+
+                                          final resp = await ApiService.confirmRenewal(
+                                            rawTowerDbId.toString(),
+                                            payload,
+                                          );
+
+                                          if (!mounted) return;
+                                          if (sheetContext.mounted) {
+                                            Navigator.pop(sheetContext);
+                                          }
+                                          _hasUpdated = true;
+                                          _fetchDetails();
+                                          _fetchRenewals();
+
+                                          final newRentDisp = resp['data']?['new_annual_rent'] ??
+                                              resp['new_annual_rent'] ??
+                                              propRent;
+                                          ScaffoldMessenger.of(context).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                'Agreement renewed successfully! Revised Rent: ₹$newRentDisp / year',
+                                              ),
+                                              backgroundColor: AppColors.success,
+                                              duration: const Duration(seconds: 4),
+                                            ),
+                                          );
+                                        } catch (e) {
+                                          setModalState(() => isSubmitting = false);
+                                          if (ctx.mounted) {
+                                            ScaffoldMessenger.of(ctx).showSnackBar(
+                                              SnackBar(
+                                                content: Text(e.toString().replaceAll('Exception: ', '')),
+                                                backgroundColor: AppColors.error,
+                                              ),
+                                            );
+                                          }
+                                        }
+                                      },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _summaryRow(
+    BuildContext context,
+    String label,
+    String value, {
+    bool isBold = false,
+    Color? highlightColor,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontSize: 12,
+              color: AppColors.textSec(context),
+            ),
+          ),
+          Text(
+            value,
+            style: GoogleFonts.poppins(
+              fontSize: 12.5,
+              fontWeight: isBold ? FontWeight.w700 : FontWeight.w600,
+              color: highlightColor ?? AppColors.textPri(context),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _val(String key, [String fallback = '—']) {
     final v = _towerData[key];
     if (v == null || v.toString().trim().isEmpty) return fallback;
@@ -987,6 +2012,232 @@ class _TowerDetailsScreenState extends State<TowerDetailsScreen> {
 
                   const SizedBox(height: 14),
 
+                  // ── Rent Escalation Configuration ────────────────────
+                  MTMMSCard(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const MTMMSSectionHeader(
+                              title: 'RENT ESCALATION CONFIGURATION',
+                              icon: Icons.trending_up_rounded,
+                            ),
+                            StatusBadge(
+                              status: (_val('escalation_enabled', 'true').toLowerCase() == 'true' ||
+                                      _val('escalation_enabled', 'true') == '1')
+                                  ? 'Escalation Active'
+                                  : 'Escalation Disabled',
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Divider(height: 1, color: AppColors.dividerCol(context)),
+                        const SizedBox(height: 8),
+
+                        _row(
+                          'Automatic Escalation',
+                          (_val('escalation_enabled', 'true').toLowerCase() == 'true' ||
+                                  _val('escalation_enabled', 'true') == '1')
+                              ? 'Enabled (Automatic on Renewal)'
+                              : 'Disabled (Fixed Rent on Renewal)',
+                        ),
+                        _row(
+                          'Current Yearly Rent',
+                          '₹${yearlyRent.toStringAsFixed(2)} / year',
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 140,
+                                child: Text(
+                                  'Escalation Percentage',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 12.5,
+                                    color: AppColors.textSec(context),
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      '${double.tryParse(_val('escalation_percentage', '10.0'))?.toStringAsFixed(2) ?? '10.00'}%',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 13,
+                                        color: AppColors.primaryLight,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    if (_isAdmin)
+                                      InkWell(
+                                        onTap: _showAdjustRateDialog,
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.primarySurf(context),
+                                            borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(color: AppColors.primaryLight.withValues(alpha: 0.3)),
+                                          ),
+                                          child: Text(
+                                            'Adjust',
+                                            style: GoogleFonts.poppins(
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.w600,
+                                              color: AppColors.primaryLight,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        _row(
+                          'Agreement Duration',
+                          '$rentCycleYears Year${rentCycleYears > 1 ? 's' : ''}',
+                        ),
+                        _row(
+                          'Agreement Start Date',
+                          _val('agreement_start_date', _val('rent_start_date', '—')),
+                        ),
+                        _row(
+                          'Agreement End Date',
+                          _val('agreement_end_date', _val('next_renewal_date', '—')),
+                        ),
+                        _row(
+                          'Next Renewal Date',
+                          _val('next_renewal_date', _val('agreement_end_date', '—')),
+                        ),
+                        _row(
+                          'Last Revised Rent',
+                          _val('last_revised_rent') != '—'
+                              ? '₹${_val('last_revised_rent')} / year'
+                              : '₹${yearlyRent.toStringAsFixed(2)} (Initial)',
+                        ),
+                        _row(
+                          'Last Escalation Date',
+                          _val('last_escalation_date', 'Initial Agreement'),
+                        ),
+
+                        const SizedBox(height: 10),
+
+                        // Live Compounding Escalation Preview Card
+                        Builder(
+                          builder: (ctx) {
+                            final isEscEnabled = (_val('escalation_enabled', 'true').toLowerCase() == 'true' ||
+                                _val('escalation_enabled', 'true') == '1');
+                            final escPct = double.tryParse(_val('escalation_percentage', '10.0')) ?? 10.0;
+                            final incAmount = isEscEnabled ? (yearlyRent * escPct / 100.0) : 0.0;
+                            final nextRent = yearlyRent + incAmount;
+
+                            return Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: isEscEnabled
+                                    ? AppColors.primarySurf(context)
+                                    : AppColors.warning.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isEscEnabled
+                                      ? AppColors.primaryLight.withValues(alpha: 0.3)
+                                      : AppColors.warning.withValues(alpha: 0.3),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    isEscEnabled ? Icons.insights_rounded : Icons.info_outline_rounded,
+                                    size: 20,
+                                    color: isEscEnabled ? AppColors.primaryLight : AppColors.warning,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          isEscEnabled
+                                              ? 'Next Renewal Projection: +$escPct% Escalation'
+                                              : 'Automatic Rent Escalation Disabled',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: isEscEnabled ? AppColors.primaryLight : AppColors.warning,
+                                          ),
+                                        ),
+                                        Text(
+                                          isEscEnabled
+                                              ? '₹${yearlyRent.toStringAsFixed(0)} + ₹${incAmount.toStringAsFixed(0)} = ₹${nextRent.toStringAsFixed(0)} / yr'
+                                              : 'Rent will remain ₹${yearlyRent.toStringAsFixed(0)} / yr on agreement renewal.',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 11,
+                                            color: AppColors.textSec(context),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+
+                        const SizedBox(height: 12),
+
+                        // Action Buttons: Renew Agreement + Adjust Escalation Rate
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 3,
+                              child: ElevatedButton.icon(
+                                icon: const Icon(Icons.autorenew_rounded, size: 18),
+                                label: const Text('Renew Agreement'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.primary,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 12),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                onPressed: _showRenewalDialog,
+                              ),
+                            ),
+                            if (_isAdmin) ...[
+                              const SizedBox(width: 10),
+                              Expanded(
+                                flex: 2,
+                                child: OutlinedButton.icon(
+                                  icon: const Icon(Icons.tune_rounded, size: 16),
+                                  label: const Text('Adjust Rate'),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  onPressed: _showAdjustRateDialog,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 14),
+
                   // ── Payment History & Receipts ────────────────────────
                   MTMMSCard(
                     padding: const EdgeInsets.all(16),
@@ -1096,6 +2347,184 @@ class _TowerDetailsScreenState extends State<TowerDetailsScreen> {
                                         color: AppColors.primaryLight,
                                       ),
                                     ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  // ── Rent Revision & Agreement Renewal History ─────────
+                  MTMMSCard(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const MTMMSSectionHeader(
+                              title: 'AGREEMENT RENEWAL & REVISION HISTORY',
+                              icon: Icons.history_edu_rounded,
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: AppColors.primarySurf(context),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                '${_renewals.length} Event${_renewals.length == 1 ? '' : 's'}',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.primaryLight,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Divider(height: 1, color: AppColors.dividerCol(context)),
+                        const SizedBox(height: 10),
+
+                        if (_renewals.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Center(
+                              child: Text(
+                                'No prior agreement renewals recorded yet.\nCurrent terms active from initial registration.',
+                                textAlign: TextAlign.center,
+                                style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  color: AppColors.textMut(context),
+                                ),
+                              ),
+                            ),
+                          )
+                        else
+                          Column(
+                            children: _renewals.map((r) {
+                              final ref = r['reference_number'] ?? 'REN-000';
+                              final renDate = r['renewal_date'] ?? '';
+                              final oldRent = double.tryParse(r['previous_annual_rent']?.toString() ?? '0') ?? 0.0;
+                              final newRent = double.tryParse(r['new_annual_rent']?.toString() ?? '0') ?? 0.0;
+                              final inc = double.tryParse(r['increase_amount']?.toString() ?? '0') ?? 0.0;
+                              final pct = double.tryParse(r['escalation_percentage']?.toString() ?? '0') ?? 0.0;
+                              final isOverride = r['is_manual_override'] == true || r['is_manual_override'].toString() == '1';
+                              final reason = r['override_reason']?.toString() ?? '';
+                              final approver = r['approved_by'] is Map
+                                  ? (r['approved_by']['name'] ?? 'Admin')
+                                  : (r['approved_by_name'] ?? 'Admin');
+                              final cycle = r['renewal_cycle_years'] ?? 5;
+                              final start = r['new_agreement_start_date'] ?? '';
+                              final end = r['new_agreement_end_date'] ?? '';
+
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 10),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primarySurf(context),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: AppColors.borderCol(context)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          ref,
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppColors.textPri(context),
+                                          ),
+                                        ),
+                                        Row(
+                                          children: [
+                                            if (isOverride)
+                                              Container(
+                                                margin: const EdgeInsets.only(right: 6),
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: AppColors.warning.withValues(alpha: 0.15),
+                                                  borderRadius: BorderRadius.circular(4),
+                                                ),
+                                                child: Text(
+                                                  'Manual Override',
+                                                  style: GoogleFonts.poppins(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: AppColors.warning,
+                                                  ),
+                                                ),
+                                              ),
+                                            StatusBadge(status: 'Approved'),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          '₹${oldRent.toStringAsFixed(0)} → ₹${newRent.toStringAsFixed(0)} / yr',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppColors.primaryLight,
+                                          ),
+                                        ),
+                                        Text(
+                                          inc > 0 ? '+₹${inc.toStringAsFixed(0)} ($pct%)' : 'Flat Renewal',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: inc > 0 ? AppColors.success : AppColors.textSec(context),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Period: $start to $end ($cycle Yrs) • $renDate',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 11,
+                                        color: AppColors.textSec(context),
+                                      ),
+                                    ),
+                                    Text(
+                                      'Approved by: $approver',
+                                      style: GoogleFonts.poppins(
+                                        fontSize: 10.5,
+                                        color: AppColors.textMut(context),
+                                      ),
+                                    ),
+                                    if (isOverride && reason.isNotEmpty) ...[
+                                      const SizedBox(height: 6),
+                                      Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: BoxDecoration(
+                                          color: AppColors.surfaceBg(context),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          'Justification: $reason',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 10.5,
+                                            fontStyle: FontStyle.italic,
+                                            color: AppColors.textPri(context),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                               );

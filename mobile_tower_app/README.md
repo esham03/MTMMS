@@ -2,7 +2,7 @@
 
 **Mobile Tower Monitoring & Management System (MTMMS)**  
 *Department of Information Technology, Government of Goa*  
-*Project by: Esham Uday Chari (Roll No: 23B-IT-503) | Mentor: Ms. Soniya Usgaonkar*
+*Project by: Esham Uday Chari (Roll No: 23B-IT-503) | Faculty Mentor: Ms. Soniya Usgaonkar*
 
 ---
 

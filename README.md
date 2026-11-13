@@ -257,6 +257,93 @@ c:\MTMMS
 
 ---
 
+## 📈 Yearly Tower Rent Escalation on Agreement Renewal System
+
+MTMMS incorporates an enterprise-grade, statutory **Yearly Tower Rent Escalation on Renewal** engine across all three client applications (**React Web**, **Electron Desktop**, and **Flutter Android Mobile**) powered by the centralized **Python Django + MySQL** backend.
+
+### 1. Statutory Business Logic & Financial Principles
+- **Strict Yearly Basis**: Mobile tower lease rents are governed and computed on an **Annual (Yearly) basis**, never monthly.
+- **Independent Per-Tower Escalation Configuration**: Every tower is independently configured with an escalation toggle and percentage rate (e.g., 5%, 8%, 10%, 15%).
+- **Compounding Mathematical Formula**:
+  $$\text{New Annual Rent} = \text{Previous Annual Rent} \times \left(1 + \frac{\text{Escalation Percentage}}{100}\right)$$
+  - *Example*: Initial Agreement: ₹2,00,000/yr @ 10% $\to$ Renewal 1: ₹2,20,000/yr $\to$ Renewal 2: ₹2,42,000/yr $\to$ Renewal 3: ₹2,66,200/yr.
+  - Escalation compounds on the *latest revised annual rent*, never reverting to the original base agreement.
+- **Manual Escalation Rate Adjustment**: Authorized administrators can manually adjust the escalation rate (%) at any time:
+  - *Direct Adjustment*: Via dedicated "Adjust Escalation Rate" modal/dialog on the Tower Details view with quick-select preset chips (5%, 8%, 10%, 12%, 15%, 20%) and live projection feedback without opening the full edit form.
+  - *During Renewal*: Within the Renewal Modal across Web, Desktop, and Mobile, the escalation rate can be fine-tuned or customized specifically for that renewal cycle, recalculating increase amount and proposed new rent in real time.
+- **Trigger Condition**: Rent escalation applies **only upon formal administrative confirmation and saving** of an agreement renewal. Approaching renewal dates or notifications never alter financial figures automatically.
+- **Disabled Escalation Handling**: When automatic escalation is disabled for a tower, agreement renewals proceed with flat rent carried forward intact.
+- **Administrator Manual Override**: Authorized nodal administrators have discretionary authority to override the calculated rent. Overrides strictly require a mandatory justification reason and official administrative order reference, permanently sealed into the audit log.
+- **Strict Concurrency & Duplicate Protection**: Database row-level locks (`select_for_update`) and overlap checks within atomic transactions guarantee idempotency, preventing double escalation if requests are re-submitted.
+- **Historical Immutability**: Past payment receipts, invoices, and prior lease terms are never overwritten or mutated.
+
+---
+
+### 2. Centralized Backend API Specifications
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/towers/{id}/preview-renewal/` | Previews compounding rent, increase amount, dates, and effective period before confirmation. Accepts optional `escalation_percentage` and `escalation_enabled` overrides. |
+| `POST` | `/api/towers/{id}/confirm-renewal/` | Atomically executes agreement renewal, records audit log, updates active tower rent. Accepts customized `escalation_percentage` and `escalation_enabled`. |
+| `POST/PATCH` | `/api/towers/{id}/update-escalation/` | Dedicated endpoint to update a tower's `escalation_percentage` (0–100%) and `escalation_enabled` toggle with validation. |
+| `GET` | `/api/towers/{id}/renewals/` | Retrieves historical rent revision and renewal audit ledger for a specific tower. |
+| `GET` | `/api/towers/all-renewals/` | System-wide audit log of all agreement renewals across North and South Goa. |
+| `GET` | `/api/towers/upcoming-renewals/` | Telemetry endpoint filtering towers whose agreements are expiring within horizon (default: 90 days). |
+
+---
+
+### 3. Database Schema Extensions
+
+#### Extended `towers` Table
+- `escalation_enabled` (`TINYINT(1)`): Boolean toggle enabling/disabling automatic escalation.
+- `escalation_percentage` (`DECIMAL(5,2)`): Configured escalation rate percentage per tower.
+- `agreement_start_date` (`DATE`): Effective start date of current tenure.
+- `agreement_end_date` (`DATE`): Expiry date of current lease tenure.
+- `next_renewal_date` (`DATE`): Statutory renewal date (indexed for upcoming renewal horizons).
+- `last_revised_rent` (`DECIMAL(12,2)`): Latest revised annual rent resulting from last renewal.
+- `last_escalation_date` (`DATE`): Date when last rent escalation was confirmed.
+
+#### New Audit Ledger: `tower_rent_renewals` Table
+- `id` (`BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY`)
+- `tower_id` (`BIGINT UNSIGNED FOREIGN KEY -> towers.id`)
+- `renewal_reference` (`VARCHAR(100) UNIQUE`): Official reference number (e.g. `REN-GA01-20261112-AB12CD`).
+- `previous_yearly_rent` (`DECIMAL(12,2)`)
+- `escalation_percentage` (`DECIMAL(5,2)`)
+- `increase_amount` (`DECIMAL(12,2)`)
+- `new_yearly_rent` (`DECIMAL(12,2)`)
+- `calculated_yearly_rent` (`DECIMAL(12,2)`)
+- `is_manual_override` (`TINYINT(1)`)
+- `manual_override_reason` (`TEXT NULL`)
+- `prev_agreement_start_date` & `prev_agreement_end_date` (`DATE`)
+- `new_agreement_start_date` & `new_agreement_end_date` (`DATE`)
+- `effective_date` & `renewal_date` (`DATE`)
+- `renewal_cycle_years` (`INT`)
+- `status` (`VARCHAR(50)`: `confirmed`, `overridden`, `cancelled`)
+- `approved_by_id` (`BIGINT UNSIGNED NULL FOREIGN KEY -> users.id`)
+- `approved_by_name` (`VARCHAR(255)`)
+- `remarks` (`TEXT NULL`)
+- `created_at` & `updated_at` (`DATETIME`)
+
+---
+
+### 4. Cross-Platform Interface Integration
+
+1. **Web Application & Electron Desktop Portal**:
+   - **Tower Details**: Dedicated **Rent Escalation Configuration** card with all 9 statutory fields, compounding preview pill, inline **Adjust Escalation Rate** modal with live projection and quick presets (5%, 8%, 10%, 12%, 15%, 20%), and **Renew Agreement** workflow.
+   - **Agreement Renewal Modal**: Comprehensive renewal form with manual escalation percentage customization, preset buttons, previous rent, escalation %, increase amount, new rent, dates, live compounding calculations, and Admin Manual Override options.
+   - **Rent Revision Ledger**: Historical data table with reference numbers, before/after rents, percentage increments, and administrator audit metadata.
+   - **Towers & Rent Management**: Quick **Renew** buttons and escalation badges embedded directly into inventory and rent tables.
+   - **Executive Dashboard**: **Upcoming Agreement Renewals** and **Recently Escalated Towers** telemetry panels.
+   - **Reports**: **Statutory Agreement Renewals & Rent Escalation Audit** table exportable to CSV/Print.
+
+2. **Flutter Mobile Application (Android)**:
+   - **Tower Details Screen**: Intuitive **Rent Escalation Configuration** section displaying all 9 fields with live calculation previews, inline "Adjust" chip and **Adjust Rate** dialog with presets, full **Agreement Renewal & Revision History** audit cards, and bottom sheet **Renew Lease Agreement** workflow with live customizable escalation percentage.
+   - **Add / Edit Tower Screen**: Full configuration controls for automatic escalation toggle, rate %, and lease start/end dates with live projection feedback.
+   - **Rent Management Screen**: Escalation rate badges, renewal horizon dates, and direct **Renew** shortcut navigation on rent cards.
+   - **Mobile Dashboard**: Upcoming renewals telemetry card with direct **Review & Renew** actions.
+
+---
+
 ## 🛠️ Management & Troubleshooting Commands
 
 ### Stop All Services

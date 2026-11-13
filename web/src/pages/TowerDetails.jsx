@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Radio,
   ArrowLeft,
@@ -16,21 +16,64 @@ import {
   Calendar,
   IndianRupee,
   Layers,
+  TrendingUp,
+  Clock,
+  ShieldAlert,
+  CheckCircle2,
+  History,
+  FileText,
+  AlertCircle,
+  ArrowUpRight,
 } from "lucide-react";
 import Loading from "../components/Loading";
 import towerApi from "../api/towerApi";
 import rentApi from "../api/rentApi";
+import { useAuth } from "../context/AuthContext";
 import { GOA_EXACT_LOCATION_COORDS } from "./MapView";
 
 export const TowerDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  const canRenew = user?.role === "admin" || user?.role === "officer";
 
   const [tower, setTower] = useState(null);
   const [payments, setPayments] = useState([]);
+  const [renewals, setRenewals] = useState([]);
   const [allOperators, setAllOperators] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Renewal & Escalation Modal State
+  const [isRenewalModalOpen, setIsRenewalModalOpen] = useState(false);
+  const [renewalPreview, setRenewalPreview] = useState(null);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [isSubmittingRenewal, setIsSubmittingRenewal] = useState(false);
+  const [renewalError, setRenewalError] = useState(null);
+  const [renewalSuccessMsg, setRenewalSuccessMsg] = useState(null);
+  const [renewalForm, setRenewalForm] = useState({
+    renewal_cycle_years: 5,
+    escalation_enabled: true,
+    escalation_percentage: "10",
+    new_agreement_start_date: "",
+    new_agreement_end_date: "",
+    effective_date: "",
+    is_manual_override: false,
+    override_yearly_rent: "",
+    override_reason: "",
+    remarks: "",
+  });
+
+  // Direct Escalation Rate Adjustment Modal State
+  const [isAdjustRateModalOpen, setIsAdjustRateModalOpen] = useState(false);
+  const [adjustRateForm, setAdjustRateForm] = useState({
+    escalation_enabled: true,
+    escalation_percentage: "10",
+  });
+  const [isSubmittingAdjustRate, setIsSubmittingAdjustRate] = useState(false);
+  const [adjustRateError, setAdjustRateError] = useState(null);
 
   // Operator Management Modal State
   const [isOpModalOpen, setIsOpModalOpen] = useState(false);
@@ -75,6 +118,10 @@ export const TowerDetails = () => {
     rent_cycle_years: 1,
     installation_date: "",
     rent_start_date: "",
+    escalation_enabled: true,
+    escalation_percentage: 10,
+    agreement_start_date: "",
+    agreement_end_date: "",
     address: "",
   });
 
@@ -82,14 +129,16 @@ export const TowerDetails = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const [towerData, paymentsData, operatorsData] = await Promise.all([
+      const [towerData, paymentsData, operatorsData, renewalsData] = await Promise.all([
         towerApi.getTower(id),
         rentApi.getTowerPayments(id).catch(() => []),
         towerApi.getOperators().catch(() => []),
+        towerApi.getTowerRenewals(id).catch(() => []),
       ]);
       setTower(towerData);
       setPayments(paymentsData || towerData?.rent_payments || []);
       setAllOperators(operatorsData);
+      setRenewals(renewalsData || towerData?.renewals || []);
 
       const assigned = Array.isArray(towerData?.operators)
         ? towerData.operators.map((op) => op.id)
@@ -172,6 +221,260 @@ export const TowerDetails = () => {
     }
   };
 
+  // Open Renewal Modal and fetch initial preview
+  const handleOpenRenewalModal = async () => {
+    setRenewalError(null);
+    setRenewalSuccessMsg(null);
+    const cycle = tower?.rent_cycle_years || 5;
+    const prevEnd = tower?.agreement_end_date || tower?.next_renewal_date;
+    const startStr = prevEnd ? String(prevEnd).split("T")[0] : new Date().toISOString().split("T")[0];
+    
+    // Auto-compute end date
+    const startDateObj = new Date(startStr);
+    const endDateObj = new Date(startDateObj);
+    endDateObj.setFullYear(endDateObj.getFullYear() + cycle);
+    const endStr = endDateObj.toISOString().split("T")[0];
+
+    const currentRate = tower?.escalation_percentage != null ? String(tower.escalation_percentage) : "10";
+    const isEscEnabled = tower?.escalation_enabled !== false;
+
+    const initialForm = {
+      renewal_cycle_years: cycle,
+      escalation_enabled: isEscEnabled,
+      escalation_percentage: currentRate,
+      new_agreement_start_date: startStr,
+      new_agreement_end_date: endStr,
+      effective_date: startStr,
+      is_manual_override: false,
+      override_yearly_rent: "",
+      override_reason: "",
+      remarks: `Official agreement renewal for ${cycle} years.`,
+    };
+    setRenewalForm(initialForm);
+    setIsRenewalModalOpen(true);
+
+    setIsLoadingPreview(true);
+    try {
+      const previewRes = await towerApi.previewRenewal(id, {
+        renewal_cycle_years: cycle,
+        new_agreement_start_date: startStr,
+        new_agreement_end_date: endStr,
+        effective_date: startStr,
+        escalation_percentage: parseFloat(currentRate) || 10,
+        escalation_enabled: isEscEnabled,
+      });
+      setRenewalPreview(previewRes?.data || previewRes);
+    } catch (err) {
+      console.error("Preview failed:", err);
+      setRenewalError(err.response?.data?.error || err.message || "Failed to calculate renewal preview.");
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
+  const handleCycleChangeInRenewal = async (newCycle) => {
+    const cycle = parseInt(newCycle, 10) || 5;
+    const startStr = renewalForm.new_agreement_start_date || new Date().toISOString().split("T")[0];
+    const startDateObj = new Date(startStr);
+    const endDateObj = new Date(startDateObj);
+    endDateObj.setFullYear(endDateObj.getFullYear() + cycle);
+    const endStr = endDateObj.toISOString().split("T")[0];
+
+    setRenewalForm((prev) => ({
+      ...prev,
+      renewal_cycle_years: cycle,
+      new_agreement_end_date: endStr,
+    }));
+
+    setIsLoadingPreview(true);
+    try {
+      const previewRes = await towerApi.previewRenewal(id, {
+        renewal_cycle_years: cycle,
+        new_agreement_start_date: startStr,
+        new_agreement_end_date: endStr,
+        effective_date: renewalForm.effective_date || startStr,
+        escalation_percentage: parseFloat(renewalForm.escalation_percentage) || 10,
+        escalation_enabled: renewalForm.escalation_enabled !== false,
+      });
+      setRenewalPreview(previewRes?.data || previewRes);
+    } catch (err) {
+      setRenewalError(err.response?.data?.error || err.message || "Failed to update preview.");
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
+  const handleStartDateChangeInRenewal = async (newStartDate) => {
+    const startStr = newStartDate;
+    const cycle = parseInt(renewalForm.renewal_cycle_years, 10) || 5;
+    let endStr = renewalForm.new_agreement_end_date;
+    if (startStr) {
+      const startDateObj = new Date(startStr);
+      if (!isNaN(startDateObj.getTime())) {
+        const endDateObj = new Date(startDateObj);
+        endDateObj.setFullYear(endDateObj.getFullYear() + cycle);
+        endStr = endDateObj.toISOString().split("T")[0];
+      }
+    }
+
+    setRenewalForm((prev) => ({
+      ...prev,
+      new_agreement_start_date: startStr,
+      new_agreement_end_date: endStr,
+      effective_date: startStr,
+    }));
+
+    setIsLoadingPreview(true);
+    try {
+      const previewRes = await towerApi.previewRenewal(id, {
+        renewal_cycle_years: cycle,
+        new_agreement_start_date: startStr,
+        new_agreement_end_date: endStr,
+        effective_date: startStr,
+        escalation_percentage: parseFloat(renewalForm.escalation_percentage) || 10,
+        escalation_enabled: renewalForm.escalation_enabled !== false,
+      });
+      setRenewalPreview(previewRes?.data || previewRes);
+    } catch (err) {
+      setRenewalError(err.response?.data?.error || err.message || "Failed to update preview.");
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
+  const handleEscalationPercentageChangeInRenewal = async (newPct) => {
+    setRenewalForm((prev) => ({
+      ...prev,
+      escalation_percentage: newPct,
+    }));
+
+    const pctNum = parseFloat(newPct);
+    if (isNaN(pctNum) || pctNum < 0) return;
+
+    setIsLoadingPreview(true);
+    try {
+      const previewRes = await towerApi.previewRenewal(id, {
+        renewal_cycle_years: parseInt(renewalForm.renewal_cycle_years, 10) || 5,
+        new_agreement_start_date: renewalForm.new_agreement_start_date,
+        new_agreement_end_date: renewalForm.new_agreement_end_date,
+        effective_date: renewalForm.effective_date || renewalForm.new_agreement_start_date,
+        escalation_percentage: pctNum,
+        escalation_enabled: renewalForm.escalation_enabled !== false,
+      });
+      setRenewalPreview(previewRes?.data || previewRes);
+    } catch (err) {
+      console.error("Preview failed:", err);
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
+  const handleEscalationToggleInRenewal = async (newEnabled) => {
+    setRenewalForm((prev) => ({
+      ...prev,
+      escalation_enabled: newEnabled,
+    }));
+
+    setIsLoadingPreview(true);
+    try {
+      const previewRes = await towerApi.previewRenewal(id, {
+        renewal_cycle_years: parseInt(renewalForm.renewal_cycle_years, 10) || 5,
+        new_agreement_start_date: renewalForm.new_agreement_start_date,
+        new_agreement_end_date: renewalForm.new_agreement_end_date,
+        effective_date: renewalForm.effective_date || renewalForm.new_agreement_start_date,
+        escalation_percentage: parseFloat(renewalForm.escalation_percentage) || 10,
+        escalation_enabled: newEnabled,
+      });
+      setRenewalPreview(previewRes?.data || previewRes);
+    } catch (err) {
+      console.error("Preview failed:", err);
+    } finally {
+      setIsLoadingPreview(false);
+    }
+  };
+
+  const handleConfirmRenewal = async (e) => {
+    e.preventDefault();
+    setIsSubmittingRenewal(true);
+    setRenewalError(null);
+    try {
+      const payload = {
+        renewal_cycle_years: parseInt(renewalForm.renewal_cycle_years, 10) || 5,
+        new_agreement_start_date: renewalForm.new_agreement_start_date,
+        new_agreement_end_date: renewalForm.new_agreement_end_date,
+        effective_date: renewalForm.effective_date || renewalForm.new_agreement_start_date,
+        escalation_enabled: renewalForm.escalation_enabled !== false,
+        escalation_percentage: parseFloat(renewalForm.escalation_percentage) || 0,
+        remarks: renewalForm.remarks,
+      };
+
+      if (renewalForm.is_manual_override) {
+        if (!isAdmin) {
+          throw new Error("Only authorized administrators are permitted to manually override yearly rent.");
+        }
+        if (!renewalForm.override_yearly_rent || parseFloat(renewalForm.override_yearly_rent) <= 0) {
+          throw new Error("Please enter a valid positive overridden yearly rent amount.");
+        }
+        if (!renewalForm.override_reason?.trim()) {
+          throw new Error("A justification reason is mandatory when manually overriding rent escalation.");
+        }
+        payload.override_yearly_rent = parseFloat(renewalForm.override_yearly_rent);
+        payload.override_reason = renewalForm.override_reason.trim();
+      }
+
+      const res = await towerApi.confirmRenewal(id, payload);
+      setIsRenewalModalOpen(false);
+      setRenewalSuccessMsg(res?.message || "Rental agreement renewed successfully!");
+      await loadDetails();
+      setTimeout(() => setRenewalSuccessMsg(null), 8000);
+    } catch (err) {
+      console.error("Renewal confirmation failed:", err);
+      setRenewalError(err.response?.data?.error || err.message || "Failed to confirm agreement renewal.");
+    } finally {
+      setIsSubmittingRenewal(false);
+    }
+  };
+
+  // Direct escalation rate adjustment modal handlers
+  const handleOpenAdjustRateModal = () => {
+    setAdjustRateForm({
+      escalation_enabled: tower?.escalation_enabled !== false,
+      escalation_percentage: String(tower?.escalation_percentage != null ? tower.escalation_percentage : 10),
+    });
+    setAdjustRateError(null);
+    setIsAdjustRateModalOpen(true);
+  };
+
+  const handleSaveAdjustRate = async (e) => {
+    e.preventDefault();
+    setIsSubmittingAdjustRate(true);
+    setAdjustRateError(null);
+    try {
+      const pct = parseFloat(adjustRateForm.escalation_percentage);
+      if (isNaN(pct) || pct < 0 || pct > 100) {
+        throw new Error("Please enter a valid escalation percentage between 0% and 100%.");
+      }
+      await towerApi.updateEscalation(id, {
+        escalation_enabled: adjustRateForm.escalation_enabled,
+        escalation_percentage: pct,
+      });
+      setIsAdjustRateModalOpen(false);
+      setRenewalSuccessMsg(`Escalation configuration updated successfully to ${pct}%.`);
+      await loadDetails();
+      setTimeout(() => setRenewalSuccessMsg(null), 6000);
+    } catch (err) {
+      setAdjustRateError(err.response?.data?.error || err.message || "Failed to update escalation rate.");
+    } finally {
+      setIsSubmittingAdjustRate(false);
+    }
+  };
+
+  useEffect(() => {
+    if (searchParams.get("action") === "renew" && tower && !isRenewalModalOpen) {
+      handleOpenRenewalModal();
+    }
+  }, [searchParams, tower]);
+
   // Open Edit Modal and prefill metadata
   const handleOpenEditModal = async () => {
     try {
@@ -223,6 +526,10 @@ export const TowerDetails = () => {
         rent_cycle_years: tower.rent_cycle_years || 1,
         installation_date: tower.installation_date ? String(tower.installation_date).split("T")[0] : "",
         rent_start_date: tower.rent_start_date ? String(tower.rent_start_date).split("T")[0] : "",
+        escalation_enabled: tower.escalation_enabled !== false,
+        escalation_percentage: tower.escalation_percentage != null ? tower.escalation_percentage : 10,
+        agreement_start_date: tower.agreement_start_date ? String(tower.agreement_start_date).split("T")[0] : (tower.rent_start_date ? String(tower.rent_start_date).split("T")[0] : ""),
+        agreement_end_date: tower.agreement_end_date ? String(tower.agreement_end_date).split("T")[0] : "",
         address: tower.address || "",
         latitude: tower.latitude != null ? String(tower.latitude) : "",
         longitude: tower.longitude != null ? String(tower.longitude) : "",
@@ -299,6 +606,12 @@ export const TowerDetails = () => {
       const cleanRentStartDate = editFormData.rent_start_date
         ? String(editFormData.rent_start_date).split("T")[0]
         : null;
+      const cleanAgreementStartDate = editFormData.agreement_start_date
+        ? String(editFormData.agreement_start_date).split("T")[0]
+        : null;
+      const cleanAgreementEndDate = editFormData.agreement_end_date
+        ? String(editFormData.agreement_end_date).split("T")[0]
+        : null;
 
       const payload = {
         tower_unique_id: editFormData.tower_unique_id.trim(),
@@ -316,6 +629,10 @@ export const TowerDetails = () => {
         rent_cycle_years: parseInt(editFormData.rent_cycle_years, 10) || 1,
         installation_date: cleanInstallDate,
         rent_start_date: cleanRentStartDate,
+        escalation_enabled: Boolean(editFormData.escalation_enabled),
+        escalation_percentage: parseFloat(editFormData.escalation_percentage) || 0,
+        agreement_start_date: cleanAgreementStartDate,
+        agreement_end_date: cleanAgreementEndDate,
         address: editFormData.address,
         latitude: editFormData.latitude !== "" && !isNaN(parseFloat(editFormData.latitude)) ? parseFloat(editFormData.latitude) : null,
         longitude: editFormData.longitude !== "" && !isNaN(parseFloat(editFormData.longitude)) ? parseFloat(editFormData.longitude) : null,
@@ -483,6 +800,24 @@ export const TowerDetails = () => {
             <button className="btn btn-secondary btn-sm" onClick={loadDetails} title="Refresh Live Data">
               <RefreshCw size={14} /> Refresh
             </button>
+            {canRenew && (
+              <button
+                className="btn btn-warning btn-sm"
+                onClick={handleOpenRenewalModal}
+                title="Renew Rental Agreement & Escalate Rent"
+                style={{
+                  background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                  color: "#ffffff",
+                  border: "none",
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <TrendingUp size={14} /> Renew Agreement
+              </button>
+            )}
             <button className="btn btn-primary btn-sm" onClick={handleOpenEditModal} title="Update Tower Details">
               <Edit2 size={14} /> Edit Tower
             </button>
@@ -500,6 +835,25 @@ export const TowerDetails = () => {
           </div>
         </div>
       </div>
+
+      {renewalSuccessMsg && (
+        <div
+          style={{
+            background: "rgba(16, 185, 129, 0.15)",
+            border: "1px solid #10b981",
+            color: "#34d399",
+            padding: "12px 16px",
+            borderRadius: "var(--radius-md)",
+            marginBottom: 20,
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+          }}
+        >
+          <CheckCircle2 size={18} />
+          <span>{renewalSuccessMsg}</span>
+        </div>
+      )}
 
       {/* Grid: 3 Main Cards */}
       <div className="grid-cols-3" style={{ marginBottom: 24 }}>
@@ -701,6 +1055,230 @@ export const TowerDetails = () => {
         </div>
       </div>
 
+      {/* Rent Escalation Configuration Card */}
+      <div className="card" style={{ marginBottom: 24, borderLeft: "4px solid #f59e0b" }}>
+        <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <TrendingUp size={20} color="#f59e0b" />
+              <h3 className="card-title" style={{ margin: 0 }}>Rent Escalation Configuration</h3>
+              <span
+                className={`badge ${
+                  tower.escalation_enabled !== false ? "badge-success" : "badge-neutral"
+                }`}
+                style={{ fontSize: "0.75rem" }}
+              >
+                {tower.escalation_enabled !== false ? "Automatic Escalation Enabled" : "Escalation Disabled"}
+              </span>
+            </div>
+            <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 4 }}>
+              Configured statutory lease parameters and compounding rent revision rules for this tower
+            </p>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {canRenew && (
+              <button
+                className="btn btn-warning btn-sm"
+                onClick={handleOpenRenewalModal}
+                title="Initiate rental agreement renewal with compounding rent increase"
+                style={{
+                  background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                  color: "#fff",
+                  border: "none",
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <TrendingUp size={14} />
+                <span>Renew Agreement &amp; Escalate Rent</span>
+              </button>
+            )}
+            {isAdmin && (
+              <>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleOpenAdjustRateModal}
+                  title="Manually adjust rent escalation rate (%)"
+                  style={{ display: "flex", alignItems: "center", gap: 6 }}
+                >
+                  <TrendingUp size={13} color="#f59e0b" />
+                  <span>Adjust Escalation Rate</span>
+                </button>
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={handleOpenEditModal}
+                  title="Edit Escalation Configuration"
+                >
+                  <Edit2 size={13} />
+                  <span>Configure Escalation</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* 9 Requirements Grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 14, padding: "16px 0", borderBottom: "1px solid var(--border-color)" }}>
+          <div style={{ padding: "12px", background: "var(--bg-surface-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
+              1. Auto Escalation Status
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, color: tower.escalation_enabled !== false ? "#10b981" : "var(--text-muted)" }}>
+              {tower.escalation_enabled !== false ? (
+                <>
+                  <CheckCircle2 size={15} /> Enabled
+                </>
+              ) : (
+                <>
+                  <X size={15} /> Disabled
+                </>
+              )}
+            </div>
+          </div>
+
+          <div style={{ padding: "12px", background: "var(--bg-surface-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
+              2. Current Yearly Rent
+            </div>
+            <div style={{ fontWeight: 800, fontSize: "1.1rem", color: "var(--text-primary)" }}>
+              ₹{Number(tower.yearly_rent || 0).toLocaleString("en-IN")}
+              <span style={{ fontSize: "0.75rem", fontWeight: 500, color: "var(--text-secondary)", marginLeft: 6 }}>
+                (₹{Number(tower.monthly_rent || Math.round((tower.yearly_rent || 0) / 12)).toLocaleString("en-IN")}/mo)
+              </span>
+            </div>
+          </div>
+
+          <div style={{ padding: "12px", background: "var(--bg-surface-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                3. Escalation Rate (%)
+              </div>
+              {isAdmin && (
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-xs"
+                  onClick={handleOpenAdjustRateModal}
+                  style={{ padding: "2px 6px", fontSize: "0.7rem", height: "auto" }}
+                  title="Manually adjust escalation rate"
+                >
+                  Adjust
+                </button>
+              )}
+            </div>
+            <div style={{ fontWeight: 800, fontSize: "1.1rem", color: "#f59e0b" }}>
+              {tower.escalation_percentage != null ? tower.escalation_percentage : 10}%
+              <span style={{ fontSize: "0.75rem", fontWeight: 500, color: "var(--text-secondary)", marginLeft: 6 }}>
+                per renewal cycle
+              </span>
+            </div>
+          </div>
+
+          <div style={{ padding: "12px", background: "var(--bg-surface-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
+              4. Agreement Duration
+            </div>
+            <div style={{ fontWeight: 700, fontSize: "1rem", color: "var(--accent-cyan)" }}>
+              {tower.rent_cycle_years || 5} Year{tower.rent_cycle_years > 1 ? "s" : ""}
+            </div>
+          </div>
+
+          <div style={{ padding: "12px", background: "var(--bg-surface-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
+              5. Agreement Start Date
+            </div>
+            <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>
+              {formatDate(tower.agreement_start_date || tower.rent_start_date)}
+            </div>
+          </div>
+
+          <div style={{ padding: "12px", background: "var(--bg-surface-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
+              6. Agreement End Date
+            </div>
+            <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>
+              {formatDate(tower.agreement_end_date || tower.next_renewal_date)}
+            </div>
+          </div>
+
+          <div style={{ padding: "12px", background: "var(--bg-surface-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
+              7. Next Renewal Date
+            </div>
+            <div style={{ fontWeight: 700, fontSize: "0.95rem", color: "#f59e0b" }}>
+              {formatDate(tower.next_renewal_date || tower.agreement_end_date)}
+            </div>
+          </div>
+
+          <div style={{ padding: "12px", background: "var(--bg-surface-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
+              8. Last Revised Rent
+            </div>
+            <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>
+              ₹{Number(tower.last_revised_rent || tower.yearly_rent || 0).toLocaleString("en-IN")}
+            </div>
+          </div>
+
+          <div style={{ padding: "12px", background: "var(--bg-surface-elevated)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-color)" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>
+              9. Last Escalation Date
+            </div>
+            <div style={{ fontWeight: 600, fontSize: "0.95rem" }}>
+              {formatDate(tower.last_escalation_date) || "Initial Agreement"}
+            </div>
+          </div>
+        </div>
+
+        {/* Live Preview Box */}
+        <div
+          style={{
+            marginTop: 16,
+            padding: "14px 16px",
+            borderRadius: "var(--radius-sm)",
+            background: "rgba(245, 158, 11, 0.08)",
+            border: "1px dashed rgba(245, 158, 11, 0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 12,
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 700, fontSize: "0.9rem", color: "#f59e0b", display: "flex", alignItems: "center", gap: 6 }}>
+              <TrendingUp size={16} /> Live Compounded Rent Projection on Next Renewal
+            </div>
+            <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", marginTop: 4 }}>
+              {tower.escalation_enabled !== false ? (
+                <span>
+                  Configured rate <strong>{tower.escalation_percentage || 10}%</strong> on current rent of <strong>₹{Number(tower.yearly_rent || 0).toLocaleString("en-IN")}</strong> yields an increase of <strong>₹{Number(Math.round((tower.yearly_rent || 0) * (tower.escalation_percentage || 10) / 100)).toLocaleString("en-IN")}</strong>.
+                </span>
+              ) : (
+                <span>
+                  Automatic escalation is currently <strong>disabled</strong> for this tower. Renewal will maintain current yearly rent unless manually adjusted.
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", textTransform: "uppercase" }}>
+              Projected Revised Rent
+            </div>
+            <div style={{ fontSize: "1.3rem", fontWeight: 800, color: tower.escalation_enabled !== false ? "#10b981" : "var(--text-primary)" }}>
+              ₹{Number(
+                tower.escalation_enabled !== false
+                  ? Math.round((tower.yearly_rent || 0) * (1 + (tower.escalation_percentage || 10) / 100))
+                  : (tower.yearly_rent || 0)
+              ).toLocaleString("en-IN")}
+              <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-secondary)" }}> / yr</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Operators Using This Tower */}
       <div className="card" style={{ marginBottom: 24 }}>
         <div className="card-header">
@@ -824,6 +1402,537 @@ export const TowerDetails = () => {
           </div>
         )}
       </div>
+
+      {/* Rent Revision & Agreement Renewal History Ledger */}
+      <div className="card" style={{ marginTop: 24, marginBottom: 24 }}>
+        <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <History size={18} color="#f59e0b" />
+              <h3 className="card-title" style={{ margin: 0 }}>Rental Agreement &amp; Rent Revision History</h3>
+              <span className="badge badge-info" style={{ fontSize: "0.75rem" }}>
+                {renewals.length} Revision{renewals.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 4 }}>
+              Immutable audit ledger of confirmed agreement renewals, compounded rent calculations, and authorized overrides
+            </p>
+          </div>
+          {canRenew && (
+            <button className="btn btn-warning btn-sm" onClick={handleOpenRenewalModal}>
+              <TrendingUp size={14} /> Renew Agreement
+            </button>
+          )}
+        </div>
+
+        {renewals.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "32px 0", color: "var(--text-muted)", fontSize: "0.85rem" }}>
+            <FileText size={32} style={{ opacity: 0.5, marginBottom: 8 }} />
+            <p>No agreement renewals have been recorded for this tower yet.</p>
+            <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>
+              Initial baseline annual rent is <strong>₹{Number(tower.yearly_rent || 0).toLocaleString("en-IN")}</strong>.
+            </p>
+          </div>
+        ) : (
+          <div className="table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Renewal Ref #</th>
+                  <th>Effective Date</th>
+                  <th>Previous Rent</th>
+                  <th>Escalation %</th>
+                  <th>Increase (₹)</th>
+                  <th>Revised Rent</th>
+                  <th>Agreement Period</th>
+                  <th>Approved By</th>
+                  <th>Audit Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {renewals.map((r) => (
+                  <tr key={r.id || r.renewal_reference}>
+                    <td style={{ fontWeight: 700, color: "var(--accent-cyan)", fontSize: "0.82rem" }}>
+                      {r.renewal_reference}
+                    </td>
+                    <td>{formatDate(r.effective_date)}</td>
+                    <td style={{ color: "var(--text-secondary)" }}>
+                      ₹{Number(r.previous_yearly_rent || 0).toLocaleString("en-IN")}
+                    </td>
+                    <td>
+                      <span className="badge badge-info" style={{ fontWeight: 700 }}>
+                        {r.escalation_percentage}%
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 700, color: "#10b981" }}>
+                      +₹{Number(r.increase_amount || 0).toLocaleString("en-IN")}
+                    </td>
+                    <td style={{ fontWeight: 800, color: "var(--text-primary)" }}>
+                      ₹{Number(r.new_yearly_rent || 0).toLocaleString("en-IN")}
+                    </td>
+                    <td style={{ fontSize: "0.8rem" }}>
+                      {formatDate(r.new_agreement_start_date)} ➔ {formatDate(r.new_agreement_end_date)}
+                      <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                        {r.renewal_cycle_years} Year Cycle
+                      </div>
+                    </td>
+                    <td>
+                      <div style={{ fontSize: "0.85rem", fontWeight: 600 }}>
+                        {r.approved_by_details?.name || r.approved_by_name || "Administrator"}
+                      </div>
+                      <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+                        {r.approved_by_details?.role ? String(r.approved_by_details.role).toUpperCase() : "ADMIN"}
+                      </div>
+                    </td>
+                    <td>
+                      {r.is_manual_override ? (
+                        <div>
+                          <span className="badge badge-warning" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                            <AlertCircle size={11} /> Overridden
+                          </span>
+                          {r.manual_override_reason && (
+                            <div style={{ fontSize: "0.72rem", color: "#f59e0b", marginTop: 2, maxWidth: 160 }} title={r.manual_override_reason}>
+                              "{r.manual_override_reason}"
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="badge badge-success">
+                          Confirmed
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Agreement Renewal & Rent Escalation Modal */}
+      {isRenewalModalOpen && (
+        <div className="modal-backdrop" onClick={() => !isSubmittingRenewal && setIsRenewalModalOpen(false)}>
+          <div className="modal-content modal-lg" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 750 }}>
+            <div className="modal-header" style={{ borderBottom: "1px solid var(--border-color)", paddingBottom: 14 }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <TrendingUp size={20} color="#f59e0b" />
+                  <h3 style={{ fontSize: "1.2rem", margin: 0, fontWeight: 700 }}>
+                    Rental Agreement Renewal &amp; Rent Escalation
+                  </h3>
+                </div>
+                <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 4 }}>
+                  Confirm statutory lease renewal for {tower.tower_unique_id}. Rent increases are compounded and applied only upon confirmation.
+                </p>
+              </div>
+              <button
+                className="btn btn-secondary btn-icon btn-sm"
+                onClick={() => setIsRenewalModalOpen(false)}
+                disabled={isSubmittingRenewal}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmRenewal}>
+              <div className="modal-body" style={{ maxHeight: "75vh", overflowY: "auto", padding: "20px 24px" }}>
+                {renewalError && (
+                  <div
+                    style={{
+                      background: "rgba(239, 68, 68, 0.15)",
+                      border: "1px solid #ef4444",
+                      color: "#f87171",
+                      padding: "10px 14px",
+                      borderRadius: "var(--radius-sm)",
+                      marginBottom: 16,
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    {renewalError}
+                  </div>
+                )}
+
+                {/* Summary Info Cards */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                    gap: 12,
+                    marginBottom: 20,
+                    padding: 14,
+                    background: "var(--bg-surface-elevated)",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px solid var(--border-color)",
+                  }}
+                >
+                  <div>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block" }}>Tower ID</span>
+                    <strong style={{ color: "var(--accent-cyan)", fontSize: "0.95rem" }}>{tower.tower_unique_id}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block" }}>Location</span>
+                    <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>{area.name || "N/A"}, {taluka.name || "Goa"}</span>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block" }}>Owner Entity</span>
+                    <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>{owner.name || (tower.land_type === "government" ? "Government of Goa" : "Private")}</span>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block" }}>Previous Yearly Rent</span>
+                    <strong style={{ fontSize: "1.05rem", color: "var(--text-primary)" }}>₹{Number(tower.yearly_rent || 0).toLocaleString("en-IN")}</strong>
+                  </div>
+                  <div style={{ gridColumn: "1 / -1", borderTop: "1px solid var(--border-color)", paddingTop: 8, marginTop: 4, display: "flex", justifyContent: "space-between", fontSize: "0.8rem" }}>
+                    <span style={{ color: "var(--text-secondary)" }}>Previous Agreement Tenure:</span>
+                    <strong style={{ color: "var(--text-primary)" }}>
+                      {formatDate(tower.agreement_start_date || tower.rent_start_date)} to {formatDate(tower.agreement_end_date || tower.next_renewal_date)}
+                    </strong>
+                  </div>
+                </div>
+
+                {/* Form Controls */}
+                <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "var(--accent-cyan)", marginBottom: 10 }}>
+                  1. New Agreement Tenure Parameters
+                </div>
+
+                <div className="form-grid-3" style={{ marginBottom: 16 }}>
+                  <div className="form-group">
+                    <label className="form-label">Renewal Period *</label>
+                    <select
+                      className="form-select"
+                      value={renewalForm.renewal_cycle_years}
+                      onChange={(e) => handleCycleChangeInRenewal(e.target.value)}
+                      disabled={isSubmittingRenewal}
+                      required
+                    >
+                      <option value={1}>1 Year (Annual)</option>
+                      <option value={2}>2 Years</option>
+                      <option value={3}>3 Years</option>
+                      <option value={5}>5 Years (Standard Cycle)</option>
+                      <option value={10}>10 Years (Long Term)</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">New Agreement Start *</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={renewalForm.new_agreement_start_date}
+                      onChange={(e) => handleStartDateChangeInRenewal(e.target.value)}
+                      disabled={isSubmittingRenewal}
+                      required
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">New Agreement End *</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={renewalForm.new_agreement_end_date}
+                      onChange={(e) => setRenewalForm({ ...renewalForm, new_agreement_end_date: e.target.value })}
+                      disabled={isSubmittingRenewal}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 20 }}>
+                  <label className="form-label">Effective Date *</label>
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={renewalForm.effective_date}
+                    onChange={(e) => setRenewalForm({ ...renewalForm, effective_date: e.target.value })}
+                    disabled={isSubmittingRenewal}
+                    required
+                  />
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>
+                    Date on which the new lease terms and revised rent become statutory
+                  </div>
+                </div>
+
+                {/* Escalation Rate Adjustment Section */}
+                <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "#f59e0b", marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span>2. Escalation Rate & Compounding Settings</span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", fontWeight: 400 }}>
+                    Adjust rate for this agreement renewal
+                  </span>
+                </div>
+
+                <div
+                  style={{
+                    padding: 14,
+                    background: "var(--bg-surface-elevated)",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px solid var(--border-color)",
+                    marginBottom: 16,
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontWeight: 600, fontSize: "0.88rem" }}>
+                      <input
+                        type="checkbox"
+                        checked={renewalForm.escalation_enabled !== false}
+                        onChange={(e) => handleEscalationToggleInRenewal(e.target.checked)}
+                        disabled={isSubmittingRenewal}
+                      />
+                      <span>Apply Rent Escalation on this Renewal</span>
+                    </label>
+                    <span className={`badge ${renewalForm.escalation_enabled !== false ? "badge-success" : "badge-neutral"}`} style={{ fontSize: "0.72rem" }}>
+                      {renewalForm.escalation_enabled !== false ? "Active" : "Disabled (0% Increase)"}
+                    </span>
+                  </div>
+
+                  {renewalForm.escalation_enabled !== false && (
+                    <div>
+                      <div className="form-group" style={{ marginBottom: 10 }}>
+                        <label className="form-label" style={{ fontSize: "0.8rem", display: "flex", justifyContent: "space-between" }}>
+                          <span>Escalation Rate (%)</span>
+                          <span style={{ color: "var(--text-muted)" }}>Default configured: {tower.escalation_percentage != null ? tower.escalation_percentage : 10}%</span>
+                        </label>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              max="100"
+                              className="form-control"
+                              style={{ maxWidth: 120, fontWeight: 700, color: "#f59e0b" }}
+                              value={renewalForm.escalation_percentage}
+                              onChange={(e) => handleEscalationPercentageChangeInRenewal(e.target.value)}
+                              disabled={isSubmittingRenewal}
+                              required
+                            />
+                            <span style={{ fontWeight: 600, color: "var(--text-muted)" }}>%</span>
+                          </div>
+
+                          {/* Quick selection preset buttons */}
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: 4 }}>
+                            {[5, 8, 10, 12, 15, 20].map((rate) => (
+                              <button
+                                key={rate}
+                                type="button"
+                                className="btn btn-secondary btn-xs"
+                                style={{
+                                  padding: "3px 8px",
+                                  fontSize: "0.75rem",
+                                  borderColor: parseFloat(renewalForm.escalation_percentage) === rate ? "#f59e0b" : "var(--border-color)",
+                                  background: parseFloat(renewalForm.escalation_percentage) === rate ? "rgba(245, 158, 11, 0.15)" : "transparent",
+                                  color: parseFloat(renewalForm.escalation_percentage) === rate ? "#f59e0b" : "var(--text-secondary)",
+                                  fontWeight: parseFloat(renewalForm.escalation_percentage) === rate ? 700 : 500,
+                                }}
+                                onClick={() => handleEscalationPercentageChangeInRenewal(rate)}
+                                disabled={isSubmittingRenewal}
+                              >
+                                {rate}%
+                              </button>
+                            ))}
+                            {tower.escalation_percentage != null && (
+                              <button
+                                type="button"
+                                className="btn btn-secondary btn-xs"
+                                style={{
+                                  padding: "3px 8px",
+                                  fontSize: "0.72rem",
+                                  color: "var(--text-muted)",
+                                }}
+                                onClick={() => handleEscalationPercentageChangeInRenewal(tower.escalation_percentage)}
+                                disabled={isSubmittingRenewal}
+                                title="Reset to tower's base rate"
+                              >
+                                Reset ({tower.escalation_percentage}%)
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
+                        You can manually adjust the escalation rate for this renewal. The calculation below updates automatically.
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Rent Escalation Preview Box */}
+                <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "#f59e0b", marginBottom: 10 }}>
+                  3. Compounded Rent Calculation Summary
+                </div>
+
+                <div
+                  style={{
+                    padding: 16,
+                    background: "rgba(245, 158, 11, 0.08)",
+                    border: "1px solid rgba(245, 158, 11, 0.3)",
+                    borderRadius: "var(--radius-md)",
+                    marginBottom: 20,
+                  }}
+                >
+                  {isLoadingPreview ? (
+                    <div style={{ padding: "16px 0", textAlign: "center", color: "var(--text-muted)" }}>
+                      <RefreshCw size={20} className="spin" style={{ marginBottom: 6 }} />
+                      <p>Calculating statutory compounding increase...</p>
+                    </div>
+                  ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 14 }}>
+                      <div>
+                        <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Current Rent</span>
+                        <div style={{ fontWeight: 700, fontSize: "1rem" }}>
+                          ₹{Number(renewalPreview?.previous_yearly_rent || tower.yearly_rent || 0).toLocaleString("en-IN")}
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Escalation Rate</span>
+                        <div style={{ fontWeight: 800, fontSize: "1.05rem", color: "#f59e0b" }}>
+                          {renewalPreview?.escalation_enabled !== false ? `${renewalPreview?.escalation_percentage || tower.escalation_percentage || 10}%` : "Disabled (0%)"}
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Increase Amount</span>
+                        <div style={{ fontWeight: 800, fontSize: "1.05rem", color: "#10b981" }}>
+                          +₹{Number(renewalPreview?.increase_amount || 0).toLocaleString("en-IN")}
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Proposed New Rent</span>
+                        <div style={{ fontWeight: 800, fontSize: "1.2rem", color: "var(--text-primary)" }}>
+                          ₹{Number(renewalPreview?.proposed_yearly_rent || 0).toLocaleString("en-IN")}
+                          <span style={{ fontSize: "0.75rem", fontWeight: 500, color: "var(--text-secondary)", display: "block" }}>
+                            ₹{Number(renewalPreview?.proposed_monthly_rent || 0).toLocaleString("en-IN")}/mo
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Manual Override Section */}
+                <div style={{ padding: 14, background: "var(--bg-surface-elevated)", borderRadius: "var(--radius-md)", border: "1px solid var(--border-color)", marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: isAdmin ? "pointer" : "not-allowed", fontWeight: 700, fontSize: "0.9rem", color: "var(--text-primary)" }}>
+                        <input
+                          type="checkbox"
+                          checked={renewalForm.is_manual_override}
+                          onChange={(e) => setRenewalForm({ ...renewalForm, is_manual_override: e.target.checked })}
+                          disabled={!isAdmin || isSubmittingRenewal}
+                        />
+                        <span>Manual Rent Override (Admin Only)</span>
+                      </label>
+                      <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 2, marginLeft: 24 }}>
+                        Enable if executive or council order dictates an annual rent differing from the auto-escalated calculation
+                      </p>
+                    </div>
+                    {!isAdmin && (
+                      <span className="badge badge-neutral" style={{ fontSize: "0.7rem" }}>
+                        Requires Admin Role
+                      </span>
+                    )}
+                  </div>
+
+                  {renewalForm.is_manual_override && (
+                    <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px dashed var(--border-color)" }}>
+                      <div
+                        style={{
+                          background: "rgba(245, 158, 11, 0.1)",
+                          border: "1px solid rgba(245, 158, 11, 0.3)",
+                          color: "#fbbf24",
+                          padding: "8px 12px",
+                          borderRadius: "var(--radius-sm)",
+                          fontSize: "0.78rem",
+                          marginBottom: 14,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <ShieldAlert size={16} />
+                        <span>
+                          <strong>Audit Warning:</strong> Overridden values are permanently logged in the audit ledger with your identity ({user?.name || "Administrator"}).
+                        </span>
+                      </div>
+
+                      <div className="form-grid-2">
+                        <div className="form-group">
+                          <label className="form-label">Approved Overridden Yearly Rent (₹) *</label>
+                          <input
+                            type="number"
+                            className="form-control"
+                            placeholder="e.g. 240000"
+                            value={renewalForm.override_yearly_rent}
+                            onChange={(e) => setRenewalForm({ ...renewalForm, override_yearly_rent: e.target.value })}
+                            disabled={isSubmittingRenewal}
+                            required={renewalForm.is_manual_override}
+                          />
+                        </div>
+
+                        <div className="form-group">
+                          <label className="form-label">Mandatory Justification Reason *</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            placeholder="e.g. Council Resolution #144/2026 or Special Co-location Tariff"
+                            value={renewalForm.override_reason}
+                            onChange={(e) => setRenewalForm({ ...renewalForm, override_reason: e.target.value })}
+                            disabled={isSubmittingRenewal}
+                            required={renewalForm.is_manual_override}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Internal Renewal Remarks</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="e.g. Agreement signed by both parties at North Goa Collectorate"
+                    value={renewalForm.remarks}
+                    onChange={(e) => setRenewalForm({ ...renewalForm, remarks: e.target.value })}
+                    disabled={isSubmittingRenewal}
+                  />
+                </div>
+              </div>
+
+              <div className="modal-footer" style={{ borderTop: "1px solid var(--border-color)", padding: "14px 24px", display: "flex", justifyContent: "space-between" }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setIsRenewalModalOpen(false)}
+                  disabled={isSubmittingRenewal}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  className="btn btn-warning"
+                  disabled={isSubmittingRenewal || isLoadingPreview}
+                  style={{
+                    background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                    color: "#fff",
+                    fontWeight: 700,
+                  }}
+                >
+                  {isSubmittingRenewal ? (
+                    <>
+                      <RefreshCw size={14} className="spin" /> Confirming Renewal...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={16} /> Confirm Renewal &amp; Apply Escalation
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Operator Assignment Modal */}
       {isOpModalOpen && (
@@ -1325,6 +2434,91 @@ export const TowerDetails = () => {
                   </div>
                 </div>
 
+                {/* 5. Rent Escalation Configuration */}
+                <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "#f59e0b", marginTop: 14, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                  <TrendingUp size={15} /> 5. Rent Escalation Configuration
+                </div>
+
+                <div className="form-grid-3" style={{ marginBottom: 12 }}>
+                  <div className="form-group">
+                    <label className="form-label">Automatic Rent Escalation</label>
+                    <select
+                      className="form-select"
+                      value={editFormData.escalation_enabled ? "true" : "false"}
+                      onChange={(e) => setEditFormData({ ...editFormData, escalation_enabled: e.target.value === "true" })}
+                    >
+                      <option value="true">Enabled (Auto-Compounded)</option>
+                      <option value="false">Disabled (No Escalation)</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Escalation Rate (%)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100"
+                      className="form-control"
+                      placeholder="e.g. 10"
+                      value={editFormData.escalation_percentage}
+                      onChange={(e) => setEditFormData({ ...editFormData, escalation_percentage: e.target.value })}
+                      disabled={!editFormData.escalation_enabled}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Agreement Start Date</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={editFormData.agreement_start_date}
+                      onChange={(e) => setEditFormData({ ...editFormData, agreement_start_date: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-grid-2" style={{ marginBottom: 14 }}>
+                  <div className="form-group">
+                    <label className="form-label">Agreement End Date</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={editFormData.agreement_end_date}
+                      onChange={(e) => setEditFormData({ ...editFormData, agreement_end_date: e.target.value })}
+                    />
+                  </div>
+
+                  {/* Live Escalation Calculation Preview in Edit Modal */}
+                  <div
+                    style={{
+                      background: "rgba(245, 158, 11, 0.08)",
+                      border: "1px dashed rgba(245, 158, 11, 0.4)",
+                      borderRadius: "var(--radius-sm)",
+                      padding: "10px 14px",
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)", textTransform: "uppercase" }}>
+                      Projected Rent on Next Renewal
+                    </div>
+                    <div style={{ fontSize: "1.05rem", fontWeight: 800, color: editFormData.escalation_enabled ? "#10b981" : "var(--text-primary)" }}>
+                      {editFormData.escalation_enabled ? (
+                        <>
+                          ₹{Math.round(editYearlyVal * (1 + (parseFloat(editFormData.escalation_percentage) || 0) / 100)).toLocaleString("en-IN")}{" "}
+                          <span style={{ fontSize: "0.75rem", color: "#f59e0b", fontWeight: 600 }}>
+                            (+₹{Math.round(editYearlyVal * ((parseFloat(editFormData.escalation_percentage) || 0) / 100)).toLocaleString("en-IN")})
+                          </span>
+                        </>
+                      ) : (
+                        `₹${editYearlyVal.toLocaleString("en-IN")} (No Increase)`
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 {/* Live Dynamic Calculated Total Amount */}
                 <div className="calculated-total-box" style={{ marginBottom: 16 }}>
                   <div className="calculated-total-details">
@@ -1353,6 +2547,228 @@ export const TowerDetails = () => {
                   disabled={isSavingTower}
                 >
                   {isSavingTower ? "Updating Tower..." : "Update Tower"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Adjust Escalation Rate Modal */}
+      {isAdjustRateModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsAdjustRateModalOpen(false)}>
+          <div className="modal-content" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <TrendingUp size={22} color="#f59e0b" />
+                <div>
+                  <h3 style={{ fontSize: "1.15rem", margin: 0 }}>Adjust Rent Escalation Rate</h3>
+                  <p style={{ fontSize: "0.78rem", color: "var(--text-muted)", marginTop: 2 }}>
+                    Update automatic rent escalation rate for {tower.tower_unique_id}
+                  </p>
+                </div>
+              </div>
+              <button
+                className="btn btn-secondary btn-icon btn-sm"
+                onClick={() => setIsAdjustRateModalOpen(false)}
+                disabled={isSubmittingAdjustRate}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAdjustRate}>
+              <div className="modal-body">
+                {adjustRateError && (
+                  <div
+                    style={{
+                      background: "rgba(239, 68, 68, 0.15)",
+                      border: "1px solid #ef4444",
+                      color: "#ef4444",
+                      padding: "10px 14px",
+                      borderRadius: "var(--radius-md)",
+                      marginBottom: 16,
+                      fontSize: "0.85rem",
+                    }}
+                  >
+                    {adjustRateError}
+                  </div>
+                )}
+
+                {/* Quick Info Strip */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 12,
+                    padding: 12,
+                    background: "var(--bg-surface-elevated)",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px solid var(--border-color)",
+                    marginBottom: 16,
+                  }}
+                >
+                  <div>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block" }}>Current Yearly Rent</span>
+                    <strong style={{ fontSize: "1rem", color: "var(--text-primary)" }}>
+                      ₹{Number(tower.yearly_rent || 0).toLocaleString("en-IN")}
+                    </strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block" }}>Current Configured Rate</span>
+                    <strong style={{ fontSize: "1rem", color: "#f59e0b" }}>
+                      {tower.escalation_percentage != null ? tower.escalation_percentage : 10}%
+                    </strong>
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    padding: 12,
+                    background: "var(--bg-surface-elevated)",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px solid var(--border-color)",
+                    marginBottom: 16,
+                  }}
+                >
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontWeight: 600, fontSize: "0.9rem" }}>
+                    <input
+                      type="checkbox"
+                      checked={adjustRateForm.escalation_enabled}
+                      onChange={(e) => setAdjustRateForm({ ...adjustRateForm, escalation_enabled: e.target.checked })}
+                      disabled={isSubmittingAdjustRate}
+                    />
+                    <span>Enable Automatic Rent Escalation</span>
+                  </label>
+                  <p style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4, marginLeft: 24 }}>
+                    When enabled, yearly rent increases automatically upon agreement renewal
+                  </p>
+                </div>
+
+                {adjustRateForm.escalation_enabled && (
+                  <>
+                    <div className="form-group" style={{ marginBottom: 14 }}>
+                      <label className="form-label" style={{ fontWeight: 600 }}>
+                        Escalation Percentage (%) *
+                      </label>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="100"
+                          className="form-control"
+                          style={{ maxWidth: 140, fontWeight: 700, fontSize: "1.1rem", color: "#f59e0b" }}
+                          value={adjustRateForm.escalation_percentage}
+                          onChange={(e) => setAdjustRateForm({ ...adjustRateForm, escalation_percentage: e.target.value })}
+                          disabled={isSubmittingAdjustRate}
+                          required
+                        />
+                        <span style={{ fontWeight: 700, fontSize: "1.1rem", color: "var(--text-muted)" }}>%</span>
+                      </div>
+                      <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>
+                        Permitted range: 0% to 100%. Standard municipal rates range from 5% to 15%.
+                      </div>
+                    </div>
+
+                    {/* Quick Presets */}
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={{ fontSize: "0.75rem", color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
+                        Quick Select Presets:
+                      </label>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {[5, 8, 10, 12, 15, 20].map((rate) => (
+                          <button
+                            key={rate}
+                            type="button"
+                            className="btn btn-secondary btn-sm"
+                            style={{
+                              padding: "4px 12px",
+                              borderColor: parseFloat(adjustRateForm.escalation_percentage) === rate ? "#f59e0b" : "var(--border-color)",
+                              background: parseFloat(adjustRateForm.escalation_percentage) === rate ? "rgba(245, 158, 11, 0.15)" : "var(--bg-surface-elevated)",
+                              color: parseFloat(adjustRateForm.escalation_percentage) === rate ? "#f59e0b" : "var(--text-primary)",
+                              fontWeight: parseFloat(adjustRateForm.escalation_percentage) === rate ? 700 : 500,
+                            }}
+                            onClick={() => setAdjustRateForm({ ...adjustRateForm, escalation_percentage: String(rate) })}
+                            disabled={isSubmittingAdjustRate}
+                          >
+                            {rate}%
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Live Calculation Preview */}
+                    {(() => {
+                      const curRent = parseFloat(tower.yearly_rent) || 0;
+                      const rate = parseFloat(adjustRateForm.escalation_percentage) || 0;
+                      const inc = Math.round((curRent * rate) / 100);
+                      const proj = Math.round(curRent + inc);
+                      return (
+                        <div
+                          style={{
+                            padding: 14,
+                            background: "rgba(245, 158, 11, 0.08)",
+                            border: "1px solid rgba(245, 158, 11, 0.3)",
+                            borderRadius: "var(--radius-md)",
+                            marginBottom: 16,
+                          }}
+                        >
+                          <div style={{ fontSize: "0.75rem", color: "#f59e0b", fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>
+                            Live Escalation Projection
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                            <div>
+                              <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Increase Amount:</span>
+                              <div style={{ fontWeight: 700, color: "#10b981", fontSize: "0.95rem" }}>
+                                +₹{inc.toLocaleString("en-IN")}
+                              </div>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>Projected Next Rent:</span>
+                              <div style={{ fontWeight: 800, color: "var(--text-primary)", fontSize: "1rem" }}>
+                                ₹{proj.toLocaleString("en-IN")}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: 8 }}>
+                            Formula: ₹{curRent.toLocaleString("en-IN")} + ({rate}% of ₹{curRent.toLocaleString("en-IN")}) = ₹{proj.toLocaleString("en-IN")}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
+              </div>
+
+              <div className="modal-footer" style={{ borderTop: "1px solid var(--border-color)", padding: "12px 20px", display: "flex", justifyContent: "space-between" }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => setIsAdjustRateModalOpen(false)}
+                  disabled={isSubmittingAdjustRate}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-warning"
+                  disabled={isSubmittingAdjustRate}
+                  style={{
+                    background: "linear-gradient(135deg, #f59e0b, #d97706)",
+                    color: "#fff",
+                    fontWeight: 700,
+                  }}
+                >
+                  {isSubmittingAdjustRate ? (
+                    <>
+                      <RefreshCw size={14} className="spin" /> Saving...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={16} /> Save Escalation Rate
+                    </>
+                  )}
                 </button>
               </div>
             </form>

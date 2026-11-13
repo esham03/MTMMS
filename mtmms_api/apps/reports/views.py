@@ -1,6 +1,6 @@
 """
 Reports view — replaces Laravel ReportsController
-7 report types matching original exactly
+8 report types matching original + Rent Escalation & Renewal History
 """
 
 from rest_framework.decorators import api_view, permission_classes
@@ -10,7 +10,7 @@ from django.db.models import Sum
 from django.utils import timezone
 from collections import defaultdict
 
-from apps.towers.models        import Tower
+from apps.towers.models        import Tower, TowerRentRenewal
 from apps.operators.models     import Operator
 from apps.rent_payments.models import RentPayment
 
@@ -125,6 +125,26 @@ def reports(request):
                 'mode':         p.payment_method or 'Bank Transfer / NEFT',
             }
             for p in RentPayment.objects.select_related('tower').order_by('-payment_date')[:50]
+        ]
+
+    # ── 8. Rent Escalation & Renewal History ────────────────
+    if report_type in ('all', 'escalations', 'renewals'):
+        data['escalation_history'] = [
+            {
+                'renewal_reference':     r.renewal_reference,
+                'tower_id':              r.tower.tower_unique_id if r.tower else f"TWR-{str(r.tower_id).zfill(4)}",
+                'previous_yearly_rent':  float(r.previous_yearly_rent),
+                'escalation_percentage': float(r.escalation_percentage),
+                'increase_amount':       float(r.increase_amount),
+                'new_yearly_rent':       float(r.new_yearly_rent),
+                'effective_date':        str(r.effective_date) if r.effective_date else 'N/A',
+                'agreement_period':      f"{r.new_agreement_start_date} to {r.new_agreement_end_date}" if r.new_agreement_start_date else 'N/A',
+                'status':                r.get_status_display() if hasattr(r, 'get_status_display') else r.status.capitalize(),
+                'approved_by':           r.approved_by_name or 'Administrator',
+                'is_manual_override':    r.is_manual_override,
+                'override_reason':       r.manual_override_reason or '',
+            }
+            for r in TowerRentRenewal.objects.select_related('tower').order_by('-effective_date', '-created_at')[:100]
         ]
 
     return Response({'data': data})

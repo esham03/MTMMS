@@ -26,9 +26,14 @@ class _AddEditTowerScreenState extends State<AddEditTowerScreen> {
   late final TextEditingController _widthCtrl;
   late final TextEditingController _frequencyCtrl;
   late final TextEditingController _yearlyRentCtrl;
+  late final TextEditingController _escalationPercentageCtrl;
   late final TextEditingController _addressCtrl;
   late final TextEditingController _latitudeCtrl;
   late final TextEditingController _longitudeCtrl;
+
+  bool _escalationEnabled = true;
+  DateTime? _agreementStartDate;
+  DateTime? _agreementEndDate;
 
   String _selectedDistrict = 'North Goa';
   String _selectedTaluka = 'Tiswadi';
@@ -141,6 +146,7 @@ class _AddEditTowerScreenState extends State<AddEditTowerScreen> {
     _widthCtrl = TextEditingController(text: _stripUnit(t?['width'] ?? '2.5'));
     _frequencyCtrl = TextEditingController(text: t?['frequency']?.toString() ?? '1800 MHz');
     _yearlyRentCtrl = TextEditingController(text: t?['yearly_rent']?.toString() ?? '60000');
+    _escalationPercentageCtrl = TextEditingController(text: t?['escalation_percentage']?.toString() ?? '10.0');
     _addressCtrl = TextEditingController(text: t?['address']?.toString() ?? '');
     _latitudeCtrl = TextEditingController(text: t?['latitude']?.toString() ?? '');
     _longitudeCtrl = TextEditingController(text: t?['longitude']?.toString() ?? '');
@@ -148,8 +154,24 @@ class _AddEditTowerScreenState extends State<AddEditTowerScreen> {
     _yearlyRentCtrl.addListener(() {
       setState(() {});
     });
+    _escalationPercentageCtrl.addListener(() {
+      setState(() {});
+    });
 
     if (t != null) {
+      if (t['escalation_enabled'] != null) {
+        _escalationEnabled = t['escalation_enabled'] == true ||
+            t['escalation_enabled'].toString() == '1' ||
+            t['escalation_enabled'].toString().toLowerCase() == 'true';
+      }
+      final sDate = t['agreement_start_date']?.toString() ?? t['rent_start_date']?.toString();
+      if (sDate != null && sDate.isNotEmpty) {
+        _agreementStartDate = DateTime.tryParse(sDate);
+      }
+      final eDate = t['agreement_end_date']?.toString() ?? t['next_renewal_date']?.toString();
+      if (eDate != null && eDate.isNotEmpty) {
+        _agreementEndDate = DateTime.tryParse(eDate);
+      }
       if (t['land']?.toString().toLowerCase() == 'private') _selectedLandType = 'Private';
       if (t['status']?.toString().toLowerCase() == 'inactive') _selectedStatus = 'Inactive';
       if (t['district'] != null) _selectedDistrict = t['district'];
@@ -227,6 +249,7 @@ class _AddEditTowerScreenState extends State<AddEditTowerScreen> {
     _widthCtrl.dispose();
     _frequencyCtrl.dispose();
     _yearlyRentCtrl.dispose();
+    _escalationPercentageCtrl.dispose();
     _addressCtrl.dispose();
     _latitudeCtrl.dispose();
     _longitudeCtrl.dispose();
@@ -339,6 +362,10 @@ class _AddEditTowerScreenState extends State<AddEditTowerScreen> {
       'yearly_rent': _yearlyRentCtrl.text.trim(),
       'rent_cycle_years': _selectedYearCycle,
       'total_amount': _calculateTotalAmount(),
+      'escalation_enabled': _escalationEnabled,
+      'escalation_percentage': double.tryParse(_escalationPercentageCtrl.text.trim()) ?? 10.0,
+      if (_agreementStartDate != null) 'agreement_start_date': _agreementStartDate!.toIso8601String().substring(0, 10),
+      if (_agreementEndDate != null) 'agreement_end_date': _agreementEndDate!.toIso8601String().substring(0, 10),
       'operator_ids': _selectedOperatorIds,
       'address': _addressCtrl.text.trim(),
       'latitude': double.tryParse(_latitudeCtrl.text.trim()),
@@ -844,6 +871,209 @@ class _AddEditTowerScreenState extends State<AddEditTowerScreen> {
                       ),
                     ],
                   ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // ── Section: Rent Escalation Configuration ───────────────
+            _formSection(
+              title: 'RENT ESCALATION CONFIGURATION',
+              icon: Icons.trending_up_rounded,
+              children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    'Automatic Rent Escalation on Renewal',
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPri(context),
+                    ),
+                  ),
+                  subtitle: Text(
+                    _escalationEnabled
+                        ? 'Rent will compound automatically upon confirmed renewal.'
+                        : 'Rent will remain constant upon agreement renewal.',
+                    style: GoogleFonts.poppins(
+                      fontSize: 11,
+                      color: AppColors.textSec(context),
+                    ),
+                  ),
+                  value: _escalationEnabled,
+                  activeColor: AppColors.primary,
+                  onChanged: (val) => setState(() => _escalationEnabled = val),
+                ),
+                const SizedBox(height: 10),
+
+                if (_escalationEnabled) ...[
+                  _label('Rent Escalation Percentage (%) *'),
+                  TextFormField(
+                    controller: _escalationPercentageCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: GoogleFonts.poppins(fontSize: 13),
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. 10.0',
+                      prefixIcon: Icon(Icons.percent_rounded, size: 18),
+                    ),
+                    validator: (v) {
+                      if (!_escalationEnabled) return null;
+                      if (v == null || v.trim().isEmpty) return 'Escalation percentage is required';
+                      final val = double.tryParse(v.trim());
+                      if (val == null || val < 0) return 'Must be 0% or higher';
+                      if (val > 100) return 'Maximum escalation rate is 100%';
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                ],
+
+                // Agreement Start and End Date Row
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label('Agreement Start Date'),
+                          InkWell(
+                            onTap: () async {
+                              final now = DateTime.now();
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: _agreementStartDate ?? now,
+                                firstDate: DateTime(2000),
+                                lastDate: DateTime(2050),
+                              );
+                              if (picked != null) {
+                                setState(() {
+                                  _agreementStartDate = picked;
+                                  if (_agreementEndDate == null || _agreementEndDate!.isBefore(picked)) {
+                                    _agreementEndDate = DateTime(
+                                      picked.year + _selectedYearCycle,
+                                      picked.month,
+                                      picked.day,
+                                    );
+                                  }
+                                });
+                              }
+                            },
+                            child: InputDecorator(
+                              decoration: const InputDecoration(
+                                prefixIcon: Icon(Icons.calendar_today_rounded, size: 16),
+                              ),
+                              child: Text(
+                                _agreementStartDate != null
+                                    ? _agreementStartDate!.toIso8601String().substring(0, 10)
+                                    : 'Select Date',
+                                style: GoogleFonts.poppins(fontSize: 12),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _label('Agreement End Date'),
+                          InkWell(
+                            onTap: () async {
+                              final now = DateTime.now();
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: _agreementEndDate ??
+                                    (_agreementStartDate != null
+                                        ? DateTime(_agreementStartDate!.year + _selectedYearCycle, _agreementStartDate!.month, _agreementStartDate!.day)
+                                        : now),
+                                firstDate: DateTime(2000),
+                                lastDate: DateTime(2050),
+                              );
+                              if (picked != null) {
+                                setState(() => _agreementEndDate = picked);
+                              }
+                            },
+                            child: InputDecorator(
+                              decoration: const InputDecoration(
+                                prefixIcon: Icon(Icons.event_available_rounded, size: 16),
+                              ),
+                              child: Text(
+                                _agreementEndDate != null
+                                    ? _agreementEndDate!.toIso8601String().substring(0, 10)
+                                    : 'Select Date',
+                                style: GoogleFonts.poppins(fontSize: 12),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                // Live Preview Card
+                Builder(
+                  builder: (ctx) {
+                    final yearly = double.tryParse(_yearlyRentCtrl.text) ?? 0.0;
+                    final pct = double.tryParse(_escalationPercentageCtrl.text) ?? 10.0;
+                    final increase = _escalationEnabled ? (yearly * pct / 100.0) : 0.0;
+                    final nextRent = yearly + increase;
+
+                    return Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: _escalationEnabled
+                            ? AppColors.primarySurf(context)
+                            : AppColors.surfaceBg(context),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: _escalationEnabled
+                              ? AppColors.primaryLight.withValues(alpha: 0.3)
+                              : AppColors.borderCol(context),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _escalationEnabled ? Icons.insights_rounded : Icons.info_outline_rounded,
+                            size: 20,
+                            color: _escalationEnabled ? AppColors.primaryLight : AppColors.textSec(context),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _escalationEnabled
+                                      ? 'Renewal Rent Projection: +${pct.toStringAsFixed(1)}%'
+                                      : 'Fixed Rent Model (No Escalation)',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: _escalationEnabled ? AppColors.primaryLight : AppColors.textPri(context),
+                                  ),
+                                ),
+                                Text(
+                                  _escalationEnabled
+                                      ? '₹${yearly.toStringAsFixed(0)} + ₹${increase.toStringAsFixed(0)} = ₹${nextRent.toStringAsFixed(0)} / yr'
+                                      : '₹${yearly.toStringAsFixed(0)} / yr will carry over without increase upon renewal.',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 11,
+                                    color: AppColors.textSec(context),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ],
             ),

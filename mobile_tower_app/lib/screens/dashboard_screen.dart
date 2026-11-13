@@ -16,6 +16,7 @@ import 'payment_history_screen.dart';
 import 'rent_management_screen.dart';
 import 'reports_screen.dart';
 import 'tower_management_screen.dart';
+import 'towers/tower_details_screen.dart';
 import 'officer_profile_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -987,6 +988,212 @@ class _DashboardScreenState extends State<DashboardScreen>
                             );
                           }).toList(),
                         ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // ── Upcoming Agreement Renewals & Escalation Telemetry ───
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: MTMMSCard(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.autorenew_rounded,
+                                size: 18,
+                                color: AppColors.primaryLight,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'UPCOMING AGREEMENT RENEWALS',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.textPri(context),
+                                  letterSpacing: 0.6,
+                                ),
+                              ),
+                            ],
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.primarySurf(context),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              '${_stats['upcoming_renewals_count'] ?? 0} Due',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primaryLight,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      // Telemetry KPI Pill Row
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceBg(context),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: AppColors.borderCol(context)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Renewal Horizon',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 10,
+                                      color: AppColors.textSec(context),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${_stats['upcoming_renewals_count'] ?? 0} Towers',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.primaryLight,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: AppColors.surfaceBg(context),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: AppColors.borderCol(context)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Recently Escalated',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 10,
+                                      color: AppColors.textSec(context),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '${_stats['recent_escalations_count'] ?? 0} Towers',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.success,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      // List of Upcoming Renewals or Clean Empty State
+                      Builder(
+                        builder: (ctx) {
+                          final renewals = (_stats['upcoming_renewals'] is List)
+                              ? (_stats['upcoming_renewals'] as List)
+                              : [];
+                          if (renewals.isEmpty) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              child: Center(
+                                child: Text(
+                                  'All mobile tower lease agreements are active and within tenure.',
+                                  textAlign: TextAlign.center,
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 11.5,
+                                    color: AppColors.textMut(context),
+                                  ),
+                                ),
+                              ),
+                            );
+                          }
+
+                          return Column(
+                            children: renewals.take(4).map((r) {
+                              final towerId = r['tower_id'] ?? r['towerId'] ?? 'TWR';
+                              final renDate = r['next_renewal_date'] ?? '—';
+                              final pct = r['escalation_percentage'] ?? '10.0';
+
+                              return Container(
+                                margin: const EdgeInsets.only(bottom: 6),
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: AppColors.primarySurf(context),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          towerId.toString(),
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppColors.textPri(context),
+                                          ),
+                                        ),
+                                        Text(
+                                          'Renewal: $renDate • +$pct% Rate',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 10.5,
+                                            color: AppColors.textSec(context),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppColors.primary,
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                        minimumSize: Size.zero,
+                                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                      ),
+                                      child: const Text('Review & Renew', style: TextStyle(fontSize: 10.5)),
+                                      onPressed: () async {
+                                        await Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => TowerDetailsScreen(tower: Map<String, dynamic>.from(r)),
+                                          ),
+                                        );
+                                        _loadDashboardData(isSilent: true);
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          );
+                        },
+                      ),
                     ],
                   ),
                 ),

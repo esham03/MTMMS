@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/government_components.dart';
 import 'payment_history_screen.dart';
+import 'towers/tower_details_screen.dart';
 
 class RentManagementScreen extends StatefulWidget {
   const RentManagementScreen({super.key});
@@ -1039,6 +1040,49 @@ Issued under the authority of Director (IT), Government of Goa.''';
                                   ],
                                 ),
                                 const SizedBox(height: 8),
+                                Builder(
+                                  builder: (ctx) {
+                                    final escEnabled = item['escalation_enabled'] == true ||
+                                        item['escalation_enabled'].toString() == '1' ||
+                                        item['escalation_enabled'].toString().toLowerCase() == 'true';
+                                    final escRate = item['escalation_percentage']?.toString() ?? '10.0';
+                                    final renewalDate = item['next_renewal_date']?.toString() ??
+                                        item['agreement_end_date']?.toString() ??
+                                        '—';
+
+                                    return Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Icon(
+                                              Icons.trending_up_rounded,
+                                              size: 14,
+                                              color: escEnabled ? AppColors.primaryLight : AppColors.textMut(context),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              escEnabled ? '$escRate% Escalation' : 'No Escalation',
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w600,
+                                                color: escEnabled ? AppColors.primaryLight : AppColors.textSec(context),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        Text(
+                                          'Renewal: $renewalDate',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 11,
+                                            color: AppColors.textSec(context),
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                ),
+                                const SizedBox(height: 6),
                                 Row(
                                   mainAxisAlignment:
                                       MainAxisAlignment.spaceBetween,
@@ -1077,6 +1121,35 @@ Issued under the authority of Director (IT), Government of Goa.''';
                                 Row(
                                   mainAxisAlignment: MainAxisAlignment.end,
                                   children: [
+                                    OutlinedButton.icon(
+                                      icon: const Icon(Icons.autorenew_rounded, size: 14),
+                                      label: const Text(
+                                        'Renew',
+                                        style: TextStyle(fontSize: 11),
+                                      ),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: AppColors.primaryLight,
+                                        side: const BorderSide(color: AppColors.primaryLight),
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 6,
+                                        ),
+                                        minimumSize: Size.zero,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                      ),
+                                      onPressed: () async {
+                                        await Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => TowerDetailsScreen(tower: item),
+                                          ),
+                                        );
+                                        _loadRentData(isSilent: true);
+                                      },
+                                    ),
+                                    const SizedBox(width: 8),
                                     OutlinedButton.icon(
                                       icon: const Icon(Icons.description_outlined, size: 14),
                                       label: const Text(

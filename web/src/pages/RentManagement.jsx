@@ -11,6 +11,7 @@ import {
   Radio,
   RefreshCw,
   Printer,
+  TrendingUp,
 } from "lucide-react";
 import StatCard from "../components/StatCard";
 import DataTable from "../components/DataTable";
@@ -69,6 +70,14 @@ export const RentManagement = () => {
     const dueDate = new Date(t.rent_due_date);
     return dueDate <= new Date();
   });
+
+  const upcomingRenewalsCount = towers.filter((t) => {
+    const renDate = t.next_renewal_date || t.agreement_end_date;
+    if (!renDate) return false;
+    const d = new Date(renDate);
+    const horizon = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+    return d <= horizon;
+  }).length;
 
   const columns = [
     {
@@ -153,11 +162,33 @@ export const RentManagement = () => {
       render: (val, row) => {
         const amount = parseFloat(val) || (parseFloat(row.monthly_rent) || 0) * 12;
         return (
-          <span style={{ fontWeight: 700, color: "var(--text-primary)" }}>
-            ₹{amount.toLocaleString()} / yr
-          </span>
+          <div>
+            <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>
+              ₹{amount.toLocaleString()} / yr
+            </div>
+            <div style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>
+              ₹{(amount / 12).toFixed(0).toLocaleString()} / mo
+            </div>
+          </div>
         );
       },
+    },
+    {
+      key: "escalation_percentage",
+      title: "Escalation Rate",
+      render: (val, row) => (
+        <div>
+          {row.escalation_enabled !== false ? (
+            <span className="badge badge-warning" style={{ fontWeight: 700, whiteSpace: "nowrap" }}>
+              +{row.escalation_percentage != null ? row.escalation_percentage : 10}%
+            </span>
+          ) : (
+            <span className="badge badge-neutral" style={{ fontSize: "0.72rem" }}>
+              Disabled
+            </span>
+          )}
+        </div>
+      ),
     },
     {
       key: "rent_cycle",
@@ -168,6 +199,24 @@ export const RentManagement = () => {
           <span className="badge badge-info" style={{ fontWeight: 700 }}>
             {cycle} Years
           </span>
+        );
+      },
+    },
+    {
+      key: "next_renewal_date",
+      title: "Renewal Horizon",
+      render: (val, row) => {
+        const renDate = val || row.agreement_end_date;
+        if (!renDate) return <span style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>Pending</span>;
+        const d = new Date(renDate);
+        const isPastOrSoon = d <= new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.82rem" }}>
+            <Calendar size={13} color={isPastOrSoon ? "#f59e0b" : "var(--text-muted)"} />
+            <span style={{ fontWeight: isPastOrSoon ? 700 : 500, color: isPastOrSoon ? "#f59e0b" : "inherit" }}>
+              {String(renDate).split("T")[0]}
+            </span>
+          </div>
         );
       },
     },
@@ -201,6 +250,15 @@ export const RentManagement = () => {
       sortable: false,
       render: (_, row) => (
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <button
+            className="btn btn-warning btn-sm"
+            onClick={() => navigate(`/towers/${row.id}?action=renew`)}
+            title="Renew Rental Agreement & Escalate Rent"
+            style={{ color: "#d97706", display: "flex", alignItems: "center", gap: 4 }}
+          >
+            <TrendingUp size={13} />
+            <span>Renew</span>
+          </button>
           <button
             className="btn btn-secondary btn-sm"
             onClick={() => setSelectedNoticeTower(row)}
@@ -254,8 +312,8 @@ export const RentManagement = () => {
         </div>
       )}
 
-      {/* Live Financial KPIs */}
-      <div className="grid-cols-3" style={{ marginBottom: 24 }}>
+      {/* Live Financial & Escalation KPIs */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16, marginBottom: 24 }}>
         <StatCard
           title="Total Annual Lease Demand"
           value={`₹${totalAnnualDemand.toLocaleString()}`}
@@ -276,6 +334,13 @@ export const RentManagement = () => {
           icon={AlertCircle}
           color={towersWithDue.length > 0 ? "rose" : "emerald"}
           subtitle="Towers where rent_due_date <= today"
+        />
+        <StatCard
+          title="Upcoming Agreement Renewals"
+          value={`${upcomingRenewalsCount}`}
+          icon={TrendingUp}
+          color="amber"
+          subtitle="Renewals scheduled within next 90 days"
         />
       </div>
 

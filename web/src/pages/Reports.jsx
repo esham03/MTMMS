@@ -13,6 +13,8 @@ import {
   RefreshCw,
   X,
   ShieldCheck,
+  History,
+  AlertCircle,
 } from "lucide-react";
 import StatCard from "../components/StatCard";
 import towerApi from "../api/towerApi";
@@ -24,6 +26,7 @@ export const Reports = () => {
   const [towers, setTowers] = useState([]);
   const [payments, setPayments] = useState([]);
   const [districts, setDistricts] = useState([]);
+  const [renewals, setRenewals] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [exportNotice, setExportNotice] = useState(null);
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -39,14 +42,16 @@ export const Reports = () => {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [towerList, paymentList, districtList] = await Promise.all([
+      const [towerList, paymentList, districtList, renewalList] = await Promise.all([
         towerApi.getTowers(),
         rentApi.getPayments().catch(() => []),
         towerApi.getDistricts().catch(() => []),
+        towerApi.getAllRenewals().catch(() => []),
       ]);
       setTowers(towerList);
       setPayments(paymentList);
       setDistricts(districtList);
+      setRenewals(renewalList);
     } catch (e) {
       console.error("Failed to load reports data", e);
     } finally {
@@ -284,6 +289,100 @@ export const Reports = () => {
                     </tr>
                   );
                 })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Statutory Agreement Renewals & Compounding Rent Escalation Audit */}
+      <div className="card" style={{ marginBottom: 24 }}>
+        <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <History size={18} color="#f59e0b" />
+              <h3 className="card-title" style={{ margin: 0 }}>Statutory Agreement Renewals &amp; Compounding Rent Escalation Audit</h3>
+            </div>
+            <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 4 }}>
+              Chronological ledger of confirmed lease renewals, escalation calculations, and authorized overrides
+            </p>
+          </div>
+          <span className="badge badge-info" style={{ fontWeight: 700 }}>
+            {renewals.length} Recorded Revision{renewals.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+
+        <div className="data-table-container">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Audit Ref #</th>
+                <th>Tower ID</th>
+                <th>Effective Date</th>
+                <th>Previous Rent</th>
+                <th>Escalation %</th>
+                <th>Increase Amount</th>
+                <th>Revised Rent</th>
+                <th>Agreement Period</th>
+                <th>Approved By</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {renewals.length === 0 ? (
+                <tr>
+                  <td colSpan={10} style={{ textAlign: "center", padding: 30, color: "var(--text-muted)" }}>
+                    No agreement renewals or rent revisions recorded in system yet.
+                  </td>
+                </tr>
+              ) : (
+                renewals.map((r) => (
+                  <tr key={r.id || r.renewal_reference}>
+                    <td style={{ fontWeight: 700, color: "var(--accent-cyan)", fontSize: "0.82rem" }}>
+                      {r.renewal_reference}
+                    </td>
+                    <td style={{ fontWeight: 600 }}>
+                      {r.tower_unique_id || `TWR-${r.tower}`}
+                    </td>
+                    <td>{r.effective_date}</td>
+                    <td style={{ color: "var(--text-secondary)" }}>
+                      ₹{Number(r.previous_yearly_rent || 0).toLocaleString("en-IN")}
+                    </td>
+                    <td>
+                      <span className="badge badge-warning" style={{ fontWeight: 700 }}>
+                        {r.escalation_percentage}%
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: 700, color: "#10b981" }}>
+                      +₹{Number(r.increase_amount || 0).toLocaleString("en-IN")}
+                    </td>
+                    <td style={{ fontWeight: 800, color: "var(--text-primary)" }}>
+                      ₹{Number(r.new_yearly_rent || 0).toLocaleString("en-IN")}
+                    </td>
+                    <td style={{ fontSize: "0.8rem" }}>
+                      {r.new_agreement_start_date} ➔ {r.new_agreement_end_date}
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{r.approved_by_details?.name || r.approved_by_name || "Administrator"}</div>
+                    </td>
+                    <td>
+                      {r.is_manual_override ? (
+                        <div>
+                          <span className="badge badge-warning" style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                            <AlertCircle size={11} /> Overridden
+                          </span>
+                          {r.manual_override_reason && (
+                            <div style={{ fontSize: "0.7rem", color: "#f59e0b", marginTop: 2, maxWidth: 150 }} title={r.manual_override_reason}>
+                              "{r.manual_override_reason}"
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="badge badge-success">Confirmed</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
               )}
             </tbody>
           </table>

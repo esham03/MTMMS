@@ -58,6 +58,37 @@ export const towerApi = {
     return extractObject(response);
   },
 
+  // ── Rent Escalation & Agreement Renewal ──
+  getTowerRenewals: async (towerId) => {
+    const response = await api.get(`/towers/${towerId}/renewals`);
+    return extractArray(response);
+  },
+
+  previewRenewal: async (towerId, payload = {}) => {
+    const response = await api.post(`/towers/${towerId}/preview-renewal`, payload);
+    return extractObject(response);
+  },
+
+  confirmRenewal: async (towerId, payload = {}) => {
+    const response = await api.post(`/towers/${towerId}/confirm-renewal`, payload);
+    return extractObject(response);
+  },
+
+  updateEscalation: async (towerId, payload = {}) => {
+    const response = await api.post(`/towers/${towerId}/update-escalation`, payload);
+    return extractObject(response);
+  },
+
+  getAllRenewals: async (params = {}) => {
+    const response = await api.get("/towers/all-renewals", { params });
+    return extractArray(response);
+  },
+
+  getUpcomingRenewals: async (days = 90) => {
+    const response = await api.get("/towers/upcoming-renewals", { params: { days } });
+    return extractArray(response);
+  },
+
   // Geographical Locations
   getDistricts: async () => {
     const response = await api.get("/districts");

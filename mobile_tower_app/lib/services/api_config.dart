@@ -130,6 +130,12 @@ class ApiConfig {
   static String towerRent(String id) => '$_currentBaseUrl/towers/$id/rent';
   static String towerPayments(String id) => '$_currentBaseUrl/towers/$id/payments';
   static String syncTowerOperators(String id) => '$_currentBaseUrl/towers/$id/operators';
+  static String updateTowerEscalation(String id) => '$_currentBaseUrl/towers/$id/update-escalation';
+  static String previewTowerRenewal(String id) => '$_currentBaseUrl/towers/$id/preview-renewal';
+  static String confirmTowerRenewal(String id) => '$_currentBaseUrl/towers/$id/confirm-renewal';
+  static String towerRenewals(String id) => '$_currentBaseUrl/towers/$id/renewals';
+  static String get allTowerRenewals => '$_currentBaseUrl/towers/all-renewals';
+  static String get upcomingTowerRenewals => '$_currentBaseUrl/towers/upcoming-renewals';
 
   // ==========================================================
   // GEOGRAPHIC / LOCATION HIERARCHY ENDPOINTS

@@ -1356,6 +1356,133 @@ class ApiService {
   }
 
   // ============================================================
+  // 11.5 RENT ESCALATION & AGREEMENT RENEWAL
+  // ============================================================
+
+  static Future<Map<String, dynamic>> previewRenewal(
+    dynamic towerId, {
+    int? cycleYears,
+    String? newStartDate,
+    String? newEndDate,
+    double? customPercentage,
+    bool? escalationEnabled,
+  }) async {
+    final headers = await _authHeaders();
+    final url = Uri.parse('${ApiConfig.baseUrl}/towers/$towerId/preview-renewal');
+    final payload = <String, dynamic>{};
+    if (cycleYears != null) payload['renewal_cycle_years'] = cycleYears;
+    if (newStartDate != null) payload['new_agreement_start_date'] = newStartDate;
+    if (newEndDate != null) payload['new_agreement_end_date'] = newEndDate;
+    if (customPercentage != null) payload['escalation_percentage'] = customPercentage;
+    if (escalationEnabled != null) payload['escalation_enabled'] = escalationEnabled;
+
+    final response = await http
+        .post(url, headers: headers, body: jsonEncode(payload))
+        .timeout(timeoutDuration);
+
+    if (response.statusCode == 200) {
+      final json = jsonDecode(response.body);
+      return json['data'] is Map<String, dynamic> ? Map<String, dynamic>.from(json['data']) : Map<String, dynamic>.from(json);
+    }
+    throw Exception('Failed to calculate renewal preview: ${response.body}');
+  }
+
+  static Future<bool> updateTowerEscalation(
+    dynamic towerId,
+    Map<String, dynamic> data,
+  ) async {
+    try {
+      final headers = await _authHeaders();
+      final url = Uri.parse(ApiConfig.updateTowerEscalation(towerId.toString()));
+      final response = await http
+          .post(url, headers: headers, body: jsonEncode(data))
+          .timeout(timeoutDuration);
+      if (response.statusCode == 200) {
+        DataSyncService.notifyDataChanged();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('ApiService.updateTowerEscalation error: $e');
+      return false;
+    }
+  }
+
+  static Future<Map<String, dynamic>> confirmRenewal(
+    dynamic towerId,
+    Map<String, dynamic> payload,
+  ) async {
+    final headers = await _authHeaders();
+    final url = Uri.parse('${ApiConfig.baseUrl}/towers/$towerId/confirm-renewal');
+
+    final response = await http
+        .post(url, headers: headers, body: jsonEncode(payload))
+        .timeout(timeoutDuration);
+
+    final json = jsonDecode(response.body);
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      DataSyncService.notifyDataChanged();
+      return Map<String, dynamic>.from(json);
+    }
+    final msg = json['error'] ?? json['message'] ?? 'Failed to confirm agreement renewal';
+    throw Exception(msg);
+  }
+
+  static Future<List<Map<String, dynamic>>> getTowerRenewals(dynamic towerId) async {
+    try {
+      final headers = await _authHeaders();
+      final url = Uri.parse('${ApiConfig.baseUrl}/towers/$towerId/renewals');
+      final response = await http.get(url, headers: headers).timeout(timeoutDuration);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        final list = json['data'] ?? json;
+        if (list is List) {
+          return list.map((e) => Map<String, dynamic>.from(e)).toList();
+        }
+      }
+    } catch (e) {
+      debugPrint('ApiService.getTowerRenewals error: $e');
+    }
+    return [];
+  }
+
+  static Future<List<Map<String, dynamic>>> getAllRenewals() async {
+    try {
+      final headers = await _authHeaders();
+      final url = Uri.parse(ApiConfig.allTowerRenewals);
+      final response = await http.get(url, headers: headers).timeout(timeoutDuration);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        final list = json['data'] ?? json;
+        if (list is List) {
+          return list.map((e) => Map<String, dynamic>.from(e)).toList();
+        }
+      }
+    } catch (e) {
+      debugPrint('ApiService.getAllRenewals error: $e');
+    }
+    return [];
+  }
+
+  static Future<List<Map<String, dynamic>>> getUpcomingRenewals({int days = 90}) async {
+    try {
+      final headers = await _authHeaders();
+      final url = Uri.parse('${ApiConfig.upcomingTowerRenewals}?days=$days');
+      final response = await http.get(url, headers: headers).timeout(timeoutDuration);
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body);
+        final list = json['data'] ?? json;
+        if (list is List) {
+          return list.map((e) => Map<String, dynamic>.from(e)).toList();
+        }
+      }
+    } catch (e) {
+      debugPrint('ApiService.getUpcomingRenewals error: $e');
+    }
+    return [];
+  }
+
+  // ============================================================
   // 12. AUTHORIZED PERSONNEL / USERS
   // GET /api/users, POST /api/users
   // ============================================================

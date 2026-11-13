@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   X,
   RefreshCw,
+  TrendingUp,
 } from "lucide-react";
 import DataTable from "../components/DataTable";
 import towerApi from "../api/towerApi";
@@ -96,9 +97,13 @@ export const Towers = () => {
     frequency: "4G/5G",
     status: "active",
     yearly_rent: "",
-    rent_cycle_years: 1,
+    rent_cycle_years: 5,
     installation_date: new Date().toISOString().split("T")[0],
     rent_start_date: new Date().toISOString().split("T")[0],
+    escalation_enabled: true,
+    escalation_percentage: 10,
+    agreement_start_date: new Date().toISOString().split("T")[0],
+    agreement_end_date: "",
     address: "",
     latitude: "",
     longitude: "",
@@ -268,9 +273,13 @@ export const Towers = () => {
       frequency: tower.frequency || "4G/5G",
       status: tower.status || "active",
       yearly_rent: tower.yearly_rent || "",
-      rent_cycle_years: tower.rent_cycle_years || 1,
+      rent_cycle_years: tower.rent_cycle_years || 5,
       installation_date: rawInstallDate || new Date().toISOString().split("T")[0],
       rent_start_date: rawRentStartDate || new Date().toISOString().split("T")[0],
+      escalation_enabled: tower.escalation_enabled !== false,
+      escalation_percentage: tower.escalation_percentage != null ? tower.escalation_percentage : 10,
+      agreement_start_date: tower.agreement_start_date ? String(tower.agreement_start_date).split("T")[0] : (rawRentStartDate || ""),
+      agreement_end_date: tower.agreement_end_date ? String(tower.agreement_end_date).split("T")[0] : "",
       address: tower.address || "",
       latitude: tower.latitude != null ? String(tower.latitude) : "",
       longitude: tower.longitude != null ? String(tower.longitude) : "",
@@ -363,6 +372,12 @@ export const Towers = () => {
       const cleanRentStartDate = formData.rent_start_date
         ? String(formData.rent_start_date).split("T")[0]
         : null;
+      const cleanAgreementStartDate = formData.agreement_start_date
+        ? String(formData.agreement_start_date).split("T")[0]
+        : null;
+      const cleanAgreementEndDate = formData.agreement_end_date
+        ? String(formData.agreement_end_date).split("T")[0]
+        : null;
 
       const payload = {
         tower_unique_id: formData.tower_unique_id.trim(),
@@ -377,9 +392,13 @@ export const Towers = () => {
         frequency: formData.frequency,
         status: formData.status,
         yearly_rent: parseFloat(formData.yearly_rent) || 0,
-        rent_cycle_years: parseInt(formData.rent_cycle_years, 10) || 1,
+        rent_cycle_years: parseInt(formData.rent_cycle_years, 10) || 5,
         installation_date: cleanInstallDate,
         rent_start_date: cleanRentStartDate,
+        escalation_enabled: Boolean(formData.escalation_enabled),
+        escalation_percentage: parseFloat(formData.escalation_percentage) || 0,
+        agreement_start_date: cleanAgreementStartDate,
+        agreement_end_date: cleanAgreementEndDate,
         address: formData.address,
         latitude: formData.latitude !== "" && !isNaN(parseFloat(formData.latitude)) ? parseFloat(formData.latitude) : null,
         longitude: formData.longitude !== "" && !isNaN(parseFloat(formData.longitude)) ? parseFloat(formData.longitude) : null,
@@ -525,8 +544,17 @@ export const Towers = () => {
             ₹{Number(val || 0).toLocaleString("en-IN")} / yr
           </div>
           <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-            Cycle: {row.rent_cycle_years || 1} Year{row.rent_cycle_years > 1 ? "s" : ""}
+            Cycle: {row.rent_cycle_years || 5} Year{row.rent_cycle_years > 1 ? "s" : ""}
           </div>
+          {row.escalation_enabled !== false ? (
+            <div style={{ fontSize: "0.7rem", color: "#f59e0b", fontWeight: 600 }}>
+              Escalation: {row.escalation_percentage != null ? row.escalation_percentage : 10}%
+            </div>
+          ) : (
+            <div style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+              No Escalation
+            </div>
+          )}
         </div>
       ),
     },
@@ -557,6 +585,17 @@ export const Towers = () => {
       sortable: false,
       render: (val, row) => (
         <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", whiteSpace: "nowrap" }}>
+          <button
+            className="btn btn-warning btn-icon btn-sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/towers/${row.id || row.tower_unique_id}?action=renew`);
+            }}
+            title="Renew Rental Agreement & Escalate Rent"
+            style={{ color: "#d97706" }}
+          >
+            <TrendingUp size={14} />
+          </button>
           <button
             className="btn btn-secondary btn-icon btn-sm"
             onClick={(e) => {
@@ -1173,6 +1212,90 @@ export const Towers = () => {
                       value={formData.rent_start_date}
                       onChange={(e) => setFormData({ ...formData, rent_start_date: e.target.value })}
                     />
+                  </div>
+                </div>
+
+                {/* 5. Rent Escalation Configuration */}
+                <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "#f59e0b", marginTop: 16, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                  <TrendingUp size={15} /> 5. Rent Escalation Configuration
+                </div>
+
+                <div className="form-grid-3" style={{ marginBottom: 12 }}>
+                  <div className="form-group">
+                    <label className="form-label">Automatic Rent Escalation</label>
+                    <select
+                      className="form-select"
+                      value={formData.escalation_enabled ? "true" : "false"}
+                      onChange={(e) => setFormData({ ...formData, escalation_enabled: e.target.value === "true" })}
+                    >
+                      <option value="true">Enabled (Auto-Compounded on Renewal)</option>
+                      <option value="false">Disabled (No Escalation)</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Escalation Percentage (%)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100"
+                      className="form-control"
+                      placeholder="e.g. 10"
+                      value={formData.escalation_percentage}
+                      onChange={(e) => setFormData({ ...formData, escalation_percentage: e.target.value })}
+                      disabled={!formData.escalation_enabled}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Agreement Start Date</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={formData.agreement_start_date}
+                      onChange={(e) => setFormData({ ...formData, agreement_start_date: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-grid-2" style={{ marginBottom: 16 }}>
+                  <div className="form-group">
+                    <label className="form-label">Agreement End Date</label>
+                    <input
+                      type="date"
+                      className="form-control"
+                      value={formData.agreement_end_date}
+                      onChange={(e) => setFormData({ ...formData, agreement_end_date: e.target.value })}
+                    />
+                  </div>
+
+                  <div
+                    style={{
+                      background: "rgba(245, 158, 11, 0.08)",
+                      border: "1px dashed rgba(245, 158, 11, 0.4)",
+                      borderRadius: "var(--radius-sm)",
+                      padding: "10px 14px",
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", textTransform: "uppercase" }}>
+                      Projected Rent on 1st Renewal
+                    </div>
+                    <div style={{ fontSize: "1rem", fontWeight: 800, color: formData.escalation_enabled ? "#10b981" : "var(--text-primary)" }}>
+                      {formData.escalation_enabled ? (
+                        <>
+                          ₹{Math.round((parseFloat(formData.yearly_rent) || 0) * (1 + (parseFloat(formData.escalation_percentage) || 0) / 100)).toLocaleString("en-IN")}{" "}
+                          <span style={{ fontSize: "0.72rem", color: "#f59e0b", fontWeight: 600 }}>
+                            (+₹{Math.round((parseFloat(formData.yearly_rent) || 0) * ((parseFloat(formData.escalation_percentage) || 0) / 100)).toLocaleString("en-IN")})
+                          </span>
+                        </>
+                      ) : (
+                        `₹${(parseFloat(formData.yearly_rent) || 0).toLocaleString("en-IN")} (No Increase)`
+                      )}
+                    </div>
                   </div>
                 </div>
 
