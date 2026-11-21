@@ -329,41 +329,49 @@ export const Login = () => {
         <div className="modal-backdrop" onClick={() => setShowForgotModal(false)}>
           <div
             className="modal-content"
-            style={{ maxWidth: 440 }}
+            style={{ maxWidth: 460 }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="modal-header">
-              <h3 style={{ fontSize: "1.1rem" }}>Official Password Recovery</h3>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Shield size={18} color="var(--primary-color, #f97316)" />
+                <h3 style={{ fontSize: "1.05rem", margin: 0 }}>Official Password Recovery</h3>
+              </div>
               <button
                 className="btn btn-secondary btn-icon btn-sm"
                 onClick={() => setShowForgotModal(false)}
+                aria-label="Close"
               >
                 <X size={16} />
               </button>
             </div>
             <div className="modal-body" style={{ fontSize: "0.88rem", color: "var(--text-secondary)" }}>
-              <p style={{ marginBottom: 12 }}>
-                Password resets for MTMMS authorized officers are managed directly through the <strong>Department of Information Technology, Government of Goa</strong> nodal security directory.
+              <p style={{ marginBottom: 14, lineHeight: 1.5 }}>
+                Access credentials and password resets for MTMMS authorized officers are managed directly through the <strong>Department of Information Technology, Government of Goa</strong> nodal security directory.
               </p>
-              <div style={{ background: "var(--bg-surface-elevated)", padding: "12px", borderRadius: "var(--radius-md)", border: "1px solid var(--border-color)", marginBottom: 14 }}>
-                <strong>Default System Administrator:</strong>
-                <div style={{ color: "var(--accent-cyan)", marginTop: 4 }}>Email: <code>admin@goa.gov.in</code></div>
-                <div style={{ color: "var(--text-primary)", marginTop: 2 }}>Password: <code>Admin@1234</code></div>
+
+              <div style={{ background: "var(--bg-surface-elevated)", padding: "14px", borderRadius: "var(--radius-md)", border: "1px solid var(--border-color)", marginBottom: 14 }}>
+                <strong style={{ color: "var(--text-primary)", display: "block", marginBottom: 6 }}>
+                  DoIT Goa Systems Helpdesk:
+                </strong>
+                <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", lineHeight: 1.6 }}>
+                  <div>Official Email: <strong style={{ color: "var(--accent-cyan, #06b6d4)" }}>helpdesk-doit@goa.gov.in</strong></div>
+                  <div>Support Helpline: <strong style={{ color: "var(--text-primary)" }}>+91 (0832) 2419700</strong></div>
+                  <div>Office: <span>Directorate of Information Technology, Altinho, Panaji, Goa</span></div>
+                </div>
               </div>
-              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                For credential reassignment, contact the DoIT Goa Systems Helpdesk at <span style={{ color: "var(--text-primary)" }}>helpdesk-doit@goa.gov.in</span>.
+
+              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0, lineHeight: 1.4 }}>
+                To reset or retrieve your account credentials, please contact your designated Nodal IT Officer or submit an official request quoting your Department Employee ID.
               </p>
             </div>
-            <div className="modal-footer">
+            <div className="modal-footer" style={{ display: "flex", justifyContent: "flex-end" }}>
               <button
-                className="btn btn-primary"
-                onClick={() => {
-                  setEmail("admin@goa.gov.in");
-                  setPassword("Admin@1234");
-                  setShowForgotModal(false);
-                }}
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowForgotModal(false)}
               >
-                Auto-fill Admin Credentials
+                Close
               </button>
             </div>
           </div>
