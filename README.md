@@ -166,8 +166,8 @@ Options:
 ## 📱 Mobile App (Android)
 
 The compiled release APK is included in the repository:
-- **Root Path:** [`MTMMS.apk`](file:///c:/MTMMS/MTMMS.apk) (~55.5 MB)
-- **App Directory:** [`mobile_tower_app/app-release.apk`](file:///c:/MTMMS/mobile_tower_app/app-release.apk)
+- **Root Path:** [`MTMMS.apk`](file:///c:/MTMMS/MTMMS.apk) (~56.3 MB)
+- **App Directory:** [`mobile_tower_app/app-release.apk`](file:///c:/MTMMS/mobile_tower_app/app-release.apk) (~56.3 MB)
 
 ### Connection Modes:
 1. **On Same Wi-Fi / Hotspot:** Open the app — the auto-discovery engine locates the server automatically.
@@ -211,7 +211,7 @@ c:\MTMMS
 ├── start-desktop-dev.bat         # Electron desktop development launcher
 ├── NETWORK_SETUP.md              # Detailed network switching & troubleshooting guide
 ├── mtmms.sql                     # Full MySQL 3NF schema and initial seed data
-├── MTMMS.apk                     # Precompiled Android release APK (~55.5 MB)
+├── MTMMS.apk                     # Precompiled Android release APK (~56.3 MB)
 ├── .mtmms-runtime.env            # Active runtime network configuration
 │
 ├── screenshots/                  # Verified live application screenshots (01–09)
