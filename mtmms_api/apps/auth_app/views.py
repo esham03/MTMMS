@@ -3,6 +3,9 @@ Auth views — replaces Laravel AuthController
 Endpoints: login, register, me, update_profile, change_password, logout, logout_all
 """
 
+import random
+import time
+from django.core.cache import cache
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -246,4 +249,121 @@ def health_check(request):
         "version": "1.0",
         "message": "MTMMS REST API is running and healthy",
     }, status=status.HTTP_200_OK)
+
+
+# ─────────────────────────────────────────────────
+# Password Recovery with 6-Digit OTP (Zero-Cost Local Simulation)
+# ─────────────────────────────────────────────────
+_RESET_OTP_STORE = {}
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def request_password_reset_otp(request):
+    """
+    Public endpoint: Generates a 6-digit OTP for password recovery.
+    Runs 100% locally with zero external paid SMS/email gateways.
+    """
+    email = request.data.get('email', '').strip().lower()
+    if not email:
+        return Response(
+            {'errors': {'email': ['Official Email is required.']}},
+            status=status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
+
+    user = User.objects.filter(email__iexact=email).first()
+    if not user:
+        return Response(
+            {'errors': {'email': ['No officer account found with this registered email address.']}},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    # Generate random 6-digit OTP
+    otp = f"{random.randint(100000, 999999)}"
+    expires_in = 300  # 5 minutes
+    expires_at = time.time() + expires_in
+
+    _RESET_OTP_STORE[email] = {
+        'otp': otp,
+        'expires_at': expires_at,
+        'user_id': user.id
+    }
+    try:
+        cache.set(f"reset_otp_{email}", otp, timeout=expires_in)
+    except Exception:
+        pass
+
+    print(f"\n=======================================================")
+    print(f"[MTMMS SECURITY DISPATCH] Password Reset OTP for {email}: {otp}")
+    print(f"=======================================================\n")
+
+    return Response({
+        'status': 'success',
+        'message': f'Verification OTP dispatched for {user.name or email}.',
+        'otp_preview': otp,
+        'expires_in': expires_in
+    })
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def verify_and_reset_password(request):
+    """
+    Public endpoint: Verifies the 6-digit OTP and updates user's password.
+    """
+    email = request.data.get('email', '').strip().lower()
+    otp = request.data.get('otp', '').strip()
+    new_password = request.data.get('new_password', '')
+
+    errors = {}
+    if not email:
+        errors['email'] = ['Email is required.']
+    if not otp:
+        errors['otp'] = ['6-Digit OTP is required.']
+    if not new_password or len(new_password) < 6:
+        errors['new_password'] = ['New password must be at least 6 characters long.']
+
+    if errors:
+        return Response({'errors': errors}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    # Validate OTP
+    is_valid = False
+    try:
+        cached_otp = cache.get(f"reset_otp_{email}")
+        if cached_otp and str(cached_otp).strip() == otp:
+            is_valid = True
+            cache.delete(f"reset_otp_{email}")
+    except Exception:
+        pass
+
+    record = _RESET_OTP_STORE.get(email)
+    if not is_valid and record:
+        if time.time() <= record['expires_at'] and record['otp'] == otp:
+            is_valid = True
+            _RESET_OTP_STORE.pop(email, None)
+        elif time.time() > record['expires_at']:
+            _RESET_OTP_STORE.pop(email, None)
+            return Response(
+                {'errors': {'otp': ['OTP code has expired. Please request a new verification code.']}},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    if not is_valid:
+        return Response(
+            {'errors': {'otp': ['Invalid OTP verification code. Please check and try again.']}},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    user = User.objects.filter(email__iexact=email).first()
+    if not user:
+        return Response({'message': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+    user.set_password(new_password)
+    user.save()
+
+    return Response({
+        'status': 'success',
+        'message': 'Password has been successfully updated. You may now sign in with your new credentials.'
+    })
+
 

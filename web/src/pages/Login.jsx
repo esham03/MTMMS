@@ -9,8 +9,12 @@ import {
   X,
   Loader2,
   AlertCircle,
+  KeyRound,
+  ArrowLeft,
+  RefreshCw,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import api from "../api/api";
 import NormalTowerManScene from "../components/login/NormalTowerManScene";
 import ConnectionBeam from "../components/login/ConnectionBeam";
 import goaEmblem from "../assets/goa-emblem.png";
@@ -31,6 +35,113 @@ export const Login = () => {
   const [errorMessage, setErrorMessage] = useState(null);
   const [countdownSeconds, setCountdownSeconds] = useState(3);
   const [showForgotModal, setShowForgotModal] = useState(false);
+
+  // Password Recovery Multi-step States (Zero-Cost Local Simulation)
+  const [forgotStep, setForgotStep] = useState(1); // 1: Email, 2: OTP & New Password, 3: Success
+  const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotOtp, setForgotOtp] = useState("");
+  const [forgotNewPassword, setForgotNewPassword] = useState("");
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState("");
+  const [forgotShowNewPass, setForgotShowNewPass] = useState(false);
+  const [forgotOtpPreview, setForgotOtpPreview] = useState("");
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotError, setForgotError] = useState(null);
+  const [forgotSuccessMsg, setForgotSuccessMsg] = useState(null);
+  const [forgotCountdown, setForgotCountdown] = useState(300);
+
+  // OTP Countdown timer for Step 2
+  useEffect(() => {
+    let timer;
+    if (showForgotModal && forgotStep === 2 && forgotCountdown > 0) {
+      timer = setInterval(() => {
+        setForgotCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [showForgotModal, forgotStep, forgotCountdown]);
+
+  const handleOpenForgotModal = () => {
+    setForgotStep(1);
+    setForgotEmail(email || "");
+    setForgotOtp("");
+    setForgotNewPassword("");
+    setForgotConfirmPassword("");
+    setForgotError(null);
+    setForgotSuccessMsg(null);
+    setShowForgotModal(true);
+  };
+
+  const handleRequestOtp = async (e) => {
+    if (e) e.preventDefault();
+    if (!forgotEmail.trim()) {
+      setForgotError("Please enter your registered official email address.");
+      return;
+    }
+    setForgotLoading(true);
+    setForgotError(null);
+    try {
+      const res = await api.post("/auth/forgot-password/request-otp", {
+        email: forgotEmail.trim(),
+      });
+      setForgotOtpPreview(res.data.otp_preview || "");
+      setForgotCountdown(300);
+      setForgotStep(2);
+    } catch (err) {
+      const msg =
+        err.response?.data?.errors?.email?.[0] ||
+        err.response?.data?.message ||
+        "Failed to request verification code. Please check your email.";
+      setForgotError(msg);
+    } finally {
+      setForgotLoading(false);
+    }
+  };
+
+  const handleVerifyAndReset = async (e) => {
+    if (e) e.preventDefault();
+    if (!forgotOtp.trim()) {
+      setForgotError("Please enter the 6-digit OTP verification code.");
+      return;
+    }
+    if (!forgotNewPassword) {
+      setForgotError("Please enter a new password.");
+      return;
+    }
+    if (forgotNewPassword.length < 6) {
+      setForgotError("New password must be at least 6 characters long.");
+      return;
+    }
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      setForgotError("Passwords do not match. Please re-enter.");
+      return;
+    }
+
+    setForgotLoading(true);
+    setForgotError(null);
+    try {
+      const res = await api.post("/auth/forgot-password/verify-reset", {
+        email: forgotEmail.trim(),
+        otp: forgotOtp.trim(),
+        new_password: forgotNewPassword,
+      });
+      setForgotSuccessMsg(res.data.message || "Password updated successfully!");
+      setForgotStep(3);
+      // Pre-fill login inputs with the newly updated credentials
+      setEmail(forgotEmail.trim());
+      setPassword(forgotNewPassword);
+    } catch (err) {
+      const msg =
+        err.response?.data?.errors?.otp?.[0] ||
+        err.response?.data?.errors?.new_password?.[0] ||
+        err.response?.data?.message ||
+        "Verification failed. Please check the OTP and try again.";
+      setForgotError(msg);
+    } finally {
+      setForgotLoading(false);
+    }
+  };
 
   const from = location.state?.from?.pathname || "/dashboard";
 
@@ -267,7 +378,7 @@ export const Login = () => {
                 <button
                   type="button"
                   className="forgot-password-link"
-                  onClick={() => setShowForgotModal(true)}
+                  onClick={handleOpenForgotModal}
                 >
                   Forgot Password?
                 </button>
@@ -324,7 +435,7 @@ export const Login = () => {
         </div>
       </div>
 
-      {/* Forgot Password Modal */}
+      {/* 100% Free In-App Password Recovery Modal */}
       {showForgotModal && (
         <div className="modal-backdrop" onClick={() => setShowForgotModal(false)}>
           <div
@@ -334,7 +445,7 @@ export const Login = () => {
           >
             <div className="modal-header">
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Shield size={18} color="var(--primary-color, #f97316)" />
+                <KeyRound size={18} color="var(--primary-color, #f97316)" />
                 <h3 style={{ fontSize: "1.05rem", margin: 0 }}>Official Password Recovery</h3>
               </div>
               <button
@@ -345,35 +456,281 @@ export const Login = () => {
                 <X size={16} />
               </button>
             </div>
-            <div className="modal-body" style={{ fontSize: "0.88rem", color: "var(--text-secondary)" }}>
-              <p style={{ marginBottom: 14, lineHeight: 1.5 }}>
-                Access credentials and password resets for MTMMS authorized officers are managed directly through the <strong>Department of Information Technology, Government of Goa</strong> nodal security directory.
-              </p>
 
-              <div style={{ background: "var(--bg-surface-elevated)", padding: "14px", borderRadius: "var(--radius-md)", border: "1px solid var(--border-color)", marginBottom: 14 }}>
-                <strong style={{ color: "var(--text-primary)", display: "block", marginBottom: 6 }}>
-                  DoIT Goa Systems Helpdesk:
-                </strong>
-                <div style={{ color: "var(--text-secondary)", fontSize: "0.85rem", lineHeight: 1.6 }}>
-                  <div>Official Email: <strong style={{ color: "var(--accent-cyan, #06b6d4)" }}>helpdesk-doit@goa.gov.in</strong></div>
-                  <div>Support Helpline: <strong style={{ color: "var(--text-primary)" }}>+91 (0832) 2419700</strong></div>
-                  <div>Office: <span>Directorate of Information Technology, Altinho, Panaji, Goa</span></div>
+            {/* STEP 1: Enter Registered Email */}
+            {forgotStep === 1 && (
+              <form onSubmit={handleRequestOtp}>
+                <div className="modal-body" style={{ fontSize: "0.88rem", color: "var(--text-secondary)" }}>
+                  <p style={{ marginBottom: 16, lineHeight: 1.5 }}>
+                    Enter your registered government email address to receive an official 6-digit verification code.
+                  </p>
+
+                  <div className="storyboard-form-group" style={{ marginBottom: 12 }}>
+                    <label className="storyboard-label" style={{ fontWeight: 600 }}>
+                      Official Email Address
+                    </label>
+                    <input
+                      type="email"
+                      className="storyboard-input"
+                      placeholder="e.g. admin@goa.gov.in"
+                      value={forgotEmail}
+                      onChange={(e) => {
+                        setForgotEmail(e.target.value);
+                        setForgotError(null);
+                      }}
+                      required
+                      autoFocus
+                    />
+                  </div>
+
+                  {forgotError && (
+                    <div className="storyboard-error-alert" style={{ marginTop: 10, marginBottom: 10 }}>
+                      <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                      <span>{forgotError}</span>
+                    </div>
+                  )}
+
+                  <div style={{
+                    background: "var(--bg-surface-elevated)",
+                    padding: "10px 12px",
+                    borderRadius: "var(--radius-md)",
+                    border: "1px solid var(--border-color)",
+                    fontSize: "0.8rem",
+                    color: "var(--text-muted)",
+                    marginTop: 12
+                  }}>
+                    🔒 <strong>Self-Contained Verification:</strong> Operates 100% locally with zero paid third-party dependencies or external mail gateways.
+                  </div>
+                </div>
+
+                <div className="modal-footer" style={{ display: "flex", justifyContent: "space-between" }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setShowForgotModal(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={forgotLoading}
+                  >
+                    {forgotLoading ? (
+                      <span className="btn-flex-center">
+                        <Loader2 size={16} className="animate-spin" />
+                        <span>Generating Code...</span>
+                      </span>
+                    ) : (
+                      <span>Generate Verification OTP</span>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* STEP 2: Enter OTP & Set New Password */}
+            {forgotStep === 2 && (
+              <form onSubmit={handleVerifyAndReset}>
+                <div className="modal-body" style={{ fontSize: "0.88rem", color: "var(--text-secondary)" }}>
+                  {/* Local Dispatch Simulation Banner */}
+                  <div style={{
+                    background: "rgba(14, 165, 233, 0.08)",
+                    border: "1px solid rgba(14, 165, 233, 0.3)",
+                    borderRadius: "var(--radius-md)",
+                    padding: "12px 14px",
+                    marginBottom: 16
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#0284c7", letterSpacing: "0.5px" }}>
+                        OFFICIAL OTP DISPATCH
+                      </span>
+                      <span style={{ fontSize: "0.76rem", color: "var(--text-muted)" }}>
+                        {forgotCountdown > 0
+                          ? `Expires in ${Math.floor(forgotCountdown / 60)}:${forgotCountdown % 60 < 10 ? "0" : ""}${forgotCountdown % 60}`
+                          : "Expired"}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: "0.84rem", color: "var(--text-primary)" }}>
+                        Your 6-Digit Verification OTP:
+                      </span>
+                      <span style={{
+                        fontSize: "1.25rem",
+                        fontWeight: 700,
+                        letterSpacing: "4px",
+                        color: "var(--primary-color, #ea580c)",
+                        background: "var(--bg-surface)",
+                        padding: "3px 10px",
+                        borderRadius: "var(--radius-sm)",
+                        border: "1px solid rgba(234, 88, 12, 0.3)"
+                      }}>
+                        {forgotOtpPreview}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="storyboard-form-group" style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <label className="storyboard-label" style={{ fontWeight: 600, margin: 0 }}>
+                        Enter 6-Digit OTP
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleRequestOtp}
+                        disabled={forgotLoading}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "var(--accent-cyan, #0284c7)",
+                          fontSize: "0.78rem",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                          padding: 0
+                        }}
+                      >
+                        <RefreshCw size={12} className={forgotLoading ? "animate-spin" : ""} />
+                        <span>Resend OTP</span>
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      className="storyboard-input"
+                      maxLength={6}
+                      placeholder="••••••"
+                      value={forgotOtp}
+                      onChange={(e) => {
+                        setForgotOtp(e.target.value.replace(/\D/g, ""));
+                        setForgotError(null);
+                      }}
+                      style={{
+                        letterSpacing: "8px",
+                        textAlign: "center",
+                        fontSize: "1.2rem",
+                        fontWeight: 700
+                      }}
+                      required
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="storyboard-form-group" style={{ marginBottom: 12 }}>
+                    <label className="storyboard-label" style={{ fontWeight: 600 }}>
+                      New Password
+                    </label>
+                    <div className="storyboard-password-wrapper">
+                      <input
+                        type={forgotShowNewPass ? "text" : "password"}
+                        className="storyboard-input password-input"
+                        placeholder="At least 6 characters"
+                        value={forgotNewPassword}
+                        onChange={(e) => {
+                          setForgotNewPassword(e.target.value);
+                          setForgotError(null);
+                        }}
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="storyboard-eye-btn"
+                        onClick={() => setForgotShowNewPass(!forgotShowNewPass)}
+                        tabIndex={-1}
+                      >
+                        {forgotShowNewPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="storyboard-form-group" style={{ marginBottom: 12 }}>
+                    <label className="storyboard-label" style={{ fontWeight: 600 }}>
+                      Confirm New Password
+                    </label>
+                    <input
+                      type={forgotShowNewPass ? "text" : "password"}
+                      className="storyboard-input"
+                      placeholder="Re-enter new password"
+                      value={forgotConfirmPassword}
+                      onChange={(e) => {
+                        setForgotConfirmPassword(e.target.value);
+                        setForgotError(null);
+                      }}
+                      required
+                    />
+                  </div>
+
+                  {forgotError && (
+                    <div className="storyboard-error-alert" style={{ marginTop: 8, marginBottom: 8 }}>
+                      <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                      <span>{forgotError}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="modal-footer" style={{ display: "flex", justifyContent: "space-between" }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setForgotStep(1)}
+                    style={{ display: "flex", alignItems: "center", gap: 6 }}
+                  >
+                    <ArrowLeft size={16} />
+                    <span>Back</span>
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={forgotLoading}
+                  >
+                    {forgotLoading ? (
+                      <span className="btn-flex-center">
+                        <Loader2 size={16} className="animate-spin" />
+                        <span>Updating Password...</span>
+                      </span>
+                    ) : (
+                      <span>Verify & Reset Password</span>
+                    )}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* STEP 3: Success Confirmation */}
+            {forgotStep === 3 && (
+              <div>
+                <div className="modal-body" style={{ textAlign: "center", padding: "28px 16px" }}>
+                  <div style={{
+                    width: 60,
+                    height: 60,
+                    borderRadius: "50%",
+                    background: "rgba(16, 185, 129, 0.12)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    margin: "0 auto 16px"
+                  }}>
+                    <Check size={32} color="#10b981" strokeWidth={3} />
+                  </div>
+                  <h4 style={{ fontSize: "1.15rem", fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>
+                    Password Reset Successfully!
+                  </h4>
+                  <p style={{ fontSize: "0.88rem", color: "var(--text-secondary)", maxWidth: 360, margin: "0 auto 16px", lineHeight: 1.5 }}>
+                    Your password has been securely updated in the database. You can now proceed to log in with your new credentials.
+                  </p>
+                </div>
+                <div className="modal-footer" style={{ display: "flex", justifyContent: "center" }}>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ minWidth: 160 }}
+                    onClick={() => setShowForgotModal(false)}
+                  >
+                    Sign In Now
+                  </button>
                 </div>
               </div>
-
-              <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: 0, lineHeight: 1.4 }}>
-                To reset or retrieve your account credentials, please contact your designated Nodal IT Officer or submit an official request quoting your Department Employee ID.
-              </p>
-            </div>
-            <div className="modal-footer" style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setShowForgotModal(false)}
-              >
-                Close
-              </button>
-            </div>
+            )}
           </div>
         </div>
       )}

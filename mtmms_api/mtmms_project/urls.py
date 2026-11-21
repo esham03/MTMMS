@@ -40,8 +40,10 @@ urlpatterns = [
     path('api/health',               auth_views.health_check),
 
     # ── Auth routes (public) ──────────────────────────────────
-    path('api/auth/login',           auth_views.login),
-    path('api/auth/register',        auth_views.register),
+    path('api/auth/login',                       auth_views.login),
+    path('api/auth/register',                    auth_views.register),
+    path('api/auth/forgot-password/request-otp', auth_views.request_password_reset_otp),
+    path('api/auth/forgot-password/verify-reset', auth_views.verify_and_reset_password),
 
     # ── Auth routes (protected) ───────────────────────────────
     path('api/user',                  auth_views.me),
