@@ -205,7 +205,7 @@ class TowerViewSet(viewsets.ModelViewSet):
             return Response({'message': 'Tower not found'}, status=status.HTTP_404_NOT_FOUND)
 
         operator_ids = request.data.get('operator_ids', [])
-        tower.operators.set(operator_ids)
+        tower.operators.set(operator_ids, through_defaults={'status': 'active'})
 
         from apps.operators.serializers import OperatorSerializer
         return Response({

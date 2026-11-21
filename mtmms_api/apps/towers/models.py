@@ -22,7 +22,7 @@ class TowerOperator(models.Model):
     frequency            = models.CharField(max_length=100, null=True, blank=True)
     agreement_start_date = models.DateField(null=True, blank=True)
     agreement_end_date   = models.DateField(null=True, blank=True)
-    status               = models.CharField(max_length=50, null=True, blank=True)
+    status               = models.CharField(max_length=50, default='active')
     created_at           = models.DateTimeField(auto_now_add=True)
     updated_at           = models.DateTimeField(auto_now=True)
 

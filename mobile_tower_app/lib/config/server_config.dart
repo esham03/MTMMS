@@ -2,11 +2,11 @@
 // DO NOT EDIT MANUALLY - Automatically updated on every server launch
 
 class GeneratedServerConfig {
-  static const String serverIp = '192.168.0.105';
-  static const List<String> allServerIps = ['192.168.0.105'];
+  static const String serverIp = '10.225.215.15';
+  static const List<String> allServerIps = ['10.225.215.15'];
   static const int apiPort = 8000;
-  static const String apiUrl = 'http://192.168.0.105:8000/api';
-  static const String healthUrl = 'http://192.168.0.105:8000/api/health/';
+  static const String apiUrl = 'http://10.225.215.15:8000/api';
+  static const String healthUrl = 'http://10.225.215.15:8000/api/health/';
   static const String tunnelUrl = 'https://dry-ghosts-cut.loca.lt/api';
   static const int discoveryPort = 41588;
 }

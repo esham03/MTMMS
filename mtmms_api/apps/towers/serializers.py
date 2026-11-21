@@ -111,7 +111,7 @@ class TowerSerializer(serializers.ModelSerializer):
 
         tower = Tower.objects.create(**validated_data)
         if operator_ids:
-            tower.operators.set(operator_ids)
+            tower.operators.set(operator_ids, through_defaults={'status': 'active'})
         return tower
 
     def update(self, instance, validated_data):
@@ -133,5 +133,5 @@ class TowerSerializer(serializers.ModelSerializer):
         instance.save()
 
         if operator_ids is not None:
-            instance.operators.set(operator_ids)
+            instance.operators.set(operator_ids, through_defaults={'status': 'active'})
         return instance
